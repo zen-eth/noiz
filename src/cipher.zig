@@ -6,6 +6,37 @@ const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 
+pub fn CipherState(comptime C: type, allocator: Allocator) type {
+    const Cipher_ = Cipher(C);
+
+    return struct {
+        k: [32]u8,
+        n: u64,
+
+        const Self = @This();
+
+        pub fn init(key: [32]u8) Self {
+            return .{ .k = key, .n = 0 };
+        }
+
+        pub fn hasKey(self: *Self) bool {
+            return self.k != [_]u8{0} ** 32;
+        }
+
+        pub fn setNonce(self: *Self, nonce: u64) void {
+            self.n = nonce;
+        }
+
+        pub fn encryptWithAd(self: *const Self, ad: []const u8, plaintext: []const u8) ![]const u8 {
+            return try Cipher_.encrypt(allocator, self.k, self.n, ad, plaintext);
+        }
+
+        pub fn decryptWithAd(self: *const Self, ad: []const u8, ciphertext: []const u8) ![]const u8 {
+            return try Cipher_.decrypt(allocator, self.k, self.n, ad, ciphertext);
+        }
+    };
+}
+
 /// Instantiates a Noise cipher function.
 ///
 /// Only these ciphers are supported in accordance with the spec: `Aes256Gcm`, `ChaCha20Poly1305`.
@@ -79,18 +110,18 @@ fn Cipher(comptime C: type) type {
         }
     };
 }
-test "cipher" {
-    const cipher = Cipher(ChaCha20Poly1305);
 
-    const key = [_]u8{69} ** cipher.key_length;
-    const nonce = 42;
+test "cipher and cipherstate consistency" {
+    const allocator = std.testing.allocator;
+
+    const key = [_]u8{69} ** 32;
+    const cipher_state = CipherState(ChaCha20Poly1305, allocator).init(key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
-    const allocator = std.testing.allocator;
-    const ciphertext = try cipher.encrypt(allocator, key, nonce, ad, m);
+    const ciphertext = try cipher_state.encryptWithAd(ad, m);
     defer allocator.free(ciphertext[0..]);
-    const plaintext = try cipher.decrypt(allocator, key, nonce, ad[0..], ciphertext);
+    const plaintext = try cipher_state.decryptWithAd(ad[0..], ciphertext);
     defer allocator.free(plaintext[0..]);
 
     try testing.expectEqualSlices(u8, plaintext[0..], m);
