@@ -6,6 +6,15 @@ const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 
+const CipherError = error{
+    /// Nonce is exhausted once it reaches (2^64) - 1.
+    ///
+    /// This means parties are not allowed to send more than (2^64)-1 transport messages.
+    NonceExhaustion,
+    OutOfMemory,
+    AuthenticationFailed,
+};
+
 /// spec: https://noiseprotocol.org/noise.html#the-cipherstate-object
 pub fn CipherState(comptime C: type, allocator: Allocator) type {
     const Cipher_ = Cipher(C);
@@ -26,9 +35,9 @@ pub fn CipherState(comptime C: type, allocator: Allocator) type {
             return .{ .k = key, .n = 0 };
         }
 
-        /// Returns true of `k` is non-empty, false otherwise.
+        /// Returns true if `k` is non-empty, false otherwise.
         pub fn hasKey(self: *Self) bool {
-            return !std.meta.eql(self.k, [_]u8{0} ** 32);
+            return !std.mem.eql(u8, &self.k, &[_]u8{0} ** 32);
         }
 
         /// Sets `n` = `nonce`. This i used for handling out-of-order transport messages.
@@ -38,12 +47,14 @@ pub fn CipherState(comptime C: type, allocator: Allocator) type {
         }
 
         /// If `k` is non-empty returns `Cipher_.encrypt(k, n++, ad, plaintext). Otherwise return plaintext.
-        pub fn encryptWithAd(self: *Self, ad: []const u8, plaintext: []const u8) ![]const u8 {
+        pub fn encryptWithAd(self: *Self, ad: []const u8, plaintext: []const u8) CipherError![]const u8 {
             if (!self.hasKey()) return plaintext;
-            if (self.n == std.math.maxInt(u64)) return error.MaxNonce;
+            if (self.n == std.math.maxInt(u64) - 1) return error.NonceExhaustion;
 
             const ciphertext = Cipher_.encrypt(allocator, self.k, self.n, ad, plaintext) catch |err| {
                 // Nonce is still incremented if encryption fails.
+                // Reusing a nonce value for n with the same key k for encryption would be catastrophic.
+                // Nonces are not allowed to wrap back to zero due to integer overflow, and the maximum nonce value is reserved.
                 self.n += 1;
                 return err;
             };
@@ -52,9 +63,9 @@ pub fn CipherState(comptime C: type, allocator: Allocator) type {
             return ciphertext;
         }
 
-        pub fn decryptWithAd(self: *Self, ad: []const u8, ciphertext: []const u8) ![]const u8 {
+        pub fn decryptWithAd(self: *Self, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
             if (!self.hasKey()) return ciphertext;
-            if (self.n == std.math.maxInt(u64)) return error.MaxNonce;
+            if (self.n == std.math.maxInt(u64) - 1) return error.NonceExhaustion;
 
             // Nonce is NOT incremented if decryption fails.
             const plaintext = try Cipher_.decrypt(allocator, self.k, self.n, ad, ciphertext);
@@ -153,10 +164,33 @@ fn testCipher(comptime C: type) !void {
     const plaintext = try receiver.decryptWithAd(ad[0..], ciphertext);
     defer allocator.free(plaintext[0..]);
 
-    try testing.expect(std.mem.eql(u8, plaintext[0..], m));
+    try testing.expectEqualSlices(u8, plaintext[0..], m);
 }
 
 test "cipherstate consistency" {
     _ = try testCipher(ChaCha20Poly1305);
     _ = try testCipher(Aes256Gcm);
+}
+
+test "failed encryption returns plaintext" {
+    const allocator = std.testing.allocator;
+
+    const key = [_]u8{0} ** 32;
+    var sender = CipherState(ChaCha20Poly1305, allocator).init(key);
+    const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+    const ad = "Additional data";
+
+    const retval = try sender.encryptWithAd(ad, m);
+    try testing.expectEqualSlices(u8, m[0..], retval);
+}
+
+test "encryption fails on max nonce" {
+    const allocator = std.testing.allocator;
+
+    const key = [_]u8{1} ** 32;
+    var sender = CipherState(ChaCha20Poly1305, allocator).init(key);
+    sender.n = std.math.maxInt(u64) - 1;
+
+    const retval = sender.encryptWithAd("", "");
+    try testing.expectError(error.NonceExhaustion, retval);
 }
