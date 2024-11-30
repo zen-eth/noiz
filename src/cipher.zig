@@ -6,33 +6,61 @@ const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 
+/// spec: https://noiseprotocol.org/noise.html#the-cipherstate-object
 pub fn CipherState(comptime C: type, allocator: Allocator) type {
     const Cipher_ = Cipher(C);
 
     return struct {
-        k: [32]u8,
+        /// A cipher key of 32 bytes (which may be empty).
+        ///
+        /// Empty is a special value which indicates `k` has not yet been initialized.
+        k: [32]u8 = [_]u8{0} ** 32,
+
+        /// An 8-byte (64-bit) unsigned integer nonce.
         n: u64,
 
         const Self = @This();
 
+        /// Sets `k` = `key` and `n` = 0.
         pub fn init(key: [32]u8) Self {
             return .{ .k = key, .n = 0 };
         }
 
+        /// Returns true of `k` is non-empty, false otherwise.
         pub fn hasKey(self: *Self) bool {
-            return self.k != [_]u8{0} ** 32;
+            return !std.meta.eql(self.k, [_]u8{0} ** 32);
         }
 
+        /// Sets `n` = `nonce`. This i used for handling out-of-order transport messages.
+        /// See: https://noiseprotocol.org/noise.html#out-of-order-transport-messages
         pub fn setNonce(self: *Self, nonce: u64) void {
             self.n = nonce;
         }
 
-        pub fn encryptWithAd(self: *const Self, ad: []const u8, plaintext: []const u8) ![]const u8 {
-            return try Cipher_.encrypt(allocator, self.k, self.n, ad, plaintext);
+        /// If `k` is non-empty returns `Cipher_.encrypt(k, n++, ad, plaintext). Otherwise return plaintext.
+        pub fn encryptWithAd(self: *Self, ad: []const u8, plaintext: []const u8) ![]const u8 {
+            if (!self.hasKey()) return plaintext;
+            if (self.n == std.math.maxInt(u64)) return error.MaxNonce;
+
+            const ciphertext = Cipher_.encrypt(allocator, self.k, self.n, ad, plaintext) catch |err| {
+                // Nonce is still incremented if encryption fails.
+                self.n += 1;
+                return err;
+            };
+
+            self.n += 1;
+            return ciphertext;
         }
 
-        pub fn decryptWithAd(self: *const Self, ad: []const u8, ciphertext: []const u8) ![]const u8 {
-            return try Cipher_.decrypt(allocator, self.k, self.n, ad, ciphertext);
+        pub fn decryptWithAd(self: *Self, ad: []const u8, ciphertext: []const u8) ![]const u8 {
+            if (!self.hasKey()) return ciphertext;
+            if (self.n == std.math.maxInt(u64)) return error.MaxNonce;
+
+            // Nonce is NOT incremented if decryption fails.
+            const plaintext = try Cipher_.decrypt(allocator, self.k, self.n, ad, ciphertext);
+            self.n += 1;
+
+            return plaintext;
         }
     };
 }
@@ -94,11 +122,11 @@ fn Cipher(comptime C: type) type {
 
             var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
 
-            const n_bytes: [8]u8 = @bitCast(n);
+            var n_bytes: [8]u8 = @bitCast(n);
 
             // If `Aes256Gcm` is used, we use big-endian encoding of n.
             if (Cipher_ == Aes256Gcm) {
-                std.mem.reverse(u8, n_bytes);
+                std.mem.reverse(u8, &n_bytes);
             }
 
             @memcpy(nonce[nonce_length - @sizeOf(u64) .. nonce_length], &n_bytes);
@@ -111,18 +139,24 @@ fn Cipher(comptime C: type) type {
     };
 }
 
-test "cipher and cipherstate consistency" {
+fn testCipher(comptime C: type) !void {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{69} ** 32;
-    const cipher_state = CipherState(ChaCha20Poly1305, allocator).init(key);
+    var sender = CipherState(C, allocator).init(key);
+    var receiver = CipherState(C, allocator).init(key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
-    const ciphertext = try cipher_state.encryptWithAd(ad, m);
+    const ciphertext = try sender.encryptWithAd(ad, m);
     defer allocator.free(ciphertext[0..]);
-    const plaintext = try cipher_state.decryptWithAd(ad[0..], ciphertext);
+    const plaintext = try receiver.decryptWithAd(ad[0..], ciphertext);
     defer allocator.free(plaintext[0..]);
 
-    try testing.expectEqualSlices(u8, plaintext[0..], m);
+    try testing.expect(std.mem.eql(u8, plaintext[0..], m));
+}
+
+test "cipherstate consistency" {
+    _ = try testCipher(ChaCha20Poly1305);
+    _ = try testCipher(Aes256Gcm);
 }
