@@ -86,38 +86,41 @@ fn Hash(comptime H: type) type {
         }
 
         /// https://www.ietf.org/rfc/rfc2104.txt
-        fn hmacHash(allocator: std.mem.Allocator, key: []const u8, data: []const u8) ![]const u8 {
+        fn hmacHash(allocator: std.mem.Allocator, key: []const u8, data: []const u8) ![HASHLEN]u8 {
             const B = BLOCKLEN;
-
-            const ipad = [_]u8{0x36} ** B;
-            const opad = [_]u8{0x5C} ** B;
 
             // 1. append zeroes at the end of K to create a B byte string
             var zeroes = try allocator.alloc(u8, B - key.len);
+            defer allocator.free(zeroes);
             for (0..zeroes.len) |i| {
                 zeroes[i] = 0;
             }
-            var appended = try std.mem.concat(allocator, u8, .{ key, zeroes[0..] });
+            var appended = try std.mem.concat(allocator, u8, &[_][]const u8{ key, zeroes[0..] });
+            defer allocator.free(appended);
+
+            // (3) append 'text' to B byte string from (2)
+            var stream = try std.mem.concat(allocator, u8, &[_][]const u8{ appended, data });
+            defer allocator.free(stream);
+
             // (2) XOR B byte string with ipad
             for (0..appended.len) |i| {
                 appended[i] ^= 0x36;
             }
-            const key_xor_ipad = key ^ ipad;
-            // (3) append 'text' to B byte string from (2)
-            const stream = try std.mem.concat(allocator, u8, .{ key_xor_ipad, data });
 
             // (4) apply H to stream generated in (3)
             const h = hash(stream);
 
             // (5) XOR B byte string with opad
-            const key_xor_opad = key ^ opad;
+            for (0..stream.len) |i| {
+                stream[i] ^= 0x5c;
+            }
 
             // (6) append 'h' from (4) to B byte string from (5)
-            const hh = try std.mem.concat(allocator, u8, .{ key_xor_opad, h });
+            const hh = try std.mem.concat(allocator, u8, &[_][]const u8{ stream, &h });
+            defer allocator.free(hh);
 
             // (7) apply H to stream generated in (6) and output the result
-            const result = hash(hh);
-            return result;
+            return hash(hh);
         }
 
         fn HKDF(
@@ -125,26 +128,50 @@ fn Hash(comptime H: type) type {
             chaining_key: []const u8,
             input_key_material: []const u8,
             num_outputs: u8,
-        ) struct { []const u8, []const u8, ?[]const u8 } {
+        ) !struct { [HASHLEN]u8, [HASHLEN]u8, ?[HASHLEN]u8 } {
             std.debug.assert(input_key_material.len == 0 or input_key_material.len == 32);
 
-            const temp_key = hmacHash(allocator, chaining_key, input_key_material);
-            const output1 = hmacHash(allocator, temp_key, &[_]u8{0x01});
+            const temp_key = try hmacHash(allocator, chaining_key, input_key_material);
+            errdefer allocator.free(&temp_key);
+            const output1 = try hmacHash(allocator, &temp_key, &[_]u8{0x01});
+            errdefer allocator.free(&output1);
             const bytes = [_]u8{0x02};
-            const output2 = hmacHash(allocator, temp_key, std.mem.concat(allocator, u8, .{ output1, bytes }));
+            const data = try std.mem.concat(allocator, u8, &[_][]const u8{ &output1, &bytes });
+            defer allocator.free(data);
+            const output2 = try hmacHash(allocator, &temp_key, data);
+            errdefer allocator.free(&output2);
             if (num_outputs == 2) return .{ output1, output2, null };
-            const output3 = hmacHash(allocator, temp_key, std.mem.concat(allocator, u8, .{ output2, [_]u8{0x03} }));
+            const data2 = try std.mem.concat(allocator, u8, &[_][]const u8{ &output1, &bytes });
+            defer allocator.free(data2);
+            const output3 = try hmacHash(allocator, &temp_key, data2);
+            errdefer allocator.free(&output3);
 
             return .{ output1, output2, output3 };
         }
     };
 }
 
+test "hmacHash" {
+    const h = Hash(Sha256);
+    const ck = [_]u8{1} ** 32;
+    const ikm = [_]u8{};
+    const allocator = std.testing.allocator;
+    const output = try h.HKDF(allocator, &ck, &ikm, 3);
+    std.debug.print("out = {any}", .{output});
+}
+
 test "hash" {
     const h = Hash(Sha256);
     const ck = [_]u8{1} ** 32;
     const ikm = [_]u8{};
-    _ = h.HKDF(std.testing.allocator, &ck, &ikm, 3);
+    const allocator = std.testing.allocator;
+    const output = try h.HKDF(allocator, &ck, &ikm, 3);
+    errdefer allocator.free(&output[0]);
+    errdefer allocator.free(&output[1]);
+    if (output[2]) |o| {
+        errdefer allocator.free(&o);
+    }
+    std.debug.print("out = {any}", .{output});
 }
 
 /// A Noise Diffie-Hellman function.
