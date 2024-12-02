@@ -123,6 +123,7 @@ fn Hash(comptime H: type) type {
             return hash(hh);
         }
 
+        // TODO: test
         fn HKDF(
             allocator: std.mem.Allocator,
             chaining_key: []const u8,
