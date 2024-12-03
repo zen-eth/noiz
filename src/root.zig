@@ -11,34 +11,7 @@ const Blake2s256 = std.crypto.hash.blake2.Blake2s256;
 const Blake2b512 = std.crypto.hash.blake2.Blake2b512;
 
 const CipherState = @import("./cipher.zig").CipherState;
-
-pub fn SymmetricState(comptime H: type, comptime C: type) type {
-    const Hash_ = Hash(H);
-
-    const HASHLEN = Hash_.len;
-
-    return struct {
-        cipher_state: CipherState,
-        ck: [HASHLEN]u8,
-        h: [HASHLEN]u8,
-
-        const Self = @This();
-
-        pub fn init(allocator: std.mem.Allocator, protocol_name: []const u8) Self {
-            const h = if (protocol_name.len <= HASHLEN) {} else {
-                Hash_.hash(protocol_name, .{});
-            };
-
-            const cipher_state = CipherState(C, allocator);
-            cipher_state.init([_]u8{0} ** 32);
-            return .{
-                .cipher_state = cipher_state,
-                .ck = h,
-                .h = h,
-            };
-        }
-    };
-}
+const SymmetricState = @import("./symmetric_state.zig").SymmetricState;
 
 const HandshakeState = struct {
     const Self = @This();
@@ -52,7 +25,7 @@ const HandshakeState = struct {
 /// Only these hash functions are supported in accordance with the spec: `Sha256`, `Sha512`, `Blake2s256`, `Blake2b512`.
 ///
 /// https://noiseprotocol.org/noise.html#hash-functions
-fn Hash(comptime H: type) type {
+pub fn Hash(comptime H: type) type {
     const _Hash = H;
 
     const HASHLEN = comptime switch (H) {
@@ -68,7 +41,7 @@ fn Hash(comptime H: type) type {
     };
 
     return struct {
-        const len = HASHLEN;
+        pub const len = HASHLEN;
 
         const Self = @This();
 
@@ -207,4 +180,5 @@ fn DH() type {
 
 test {
     _ = @import("cipher.zig");
+    _ = @import("symmetric_state.zig");
 }

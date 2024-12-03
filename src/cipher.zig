@@ -16,10 +16,11 @@ const CipherError = error{
 };
 
 /// spec: https://noiseprotocol.org/noise.html#the-cipherstate-object
-pub fn CipherState(comptime C: type, allocator: Allocator) type {
+pub fn CipherState(comptime C: type) type {
     const Cipher_ = Cipher(C);
 
     return struct {
+        allocator: Allocator, 
         /// A cipher key of 32 bytes (which may be empty).
         ///
         /// Empty is a special value which indicates `k` has not yet been initialized.
@@ -31,8 +32,8 @@ pub fn CipherState(comptime C: type, allocator: Allocator) type {
         const Self = @This();
 
         /// Sets `k` = `key` and `n` = 0.
-        pub fn init(key: [32]u8) Self {
-            return .{ .k = key, .n = 0 };
+        pub fn init(allocator: Allocator, key: [32]u8) Self {
+            return .{ .allocator = allocator, .k = key, .n = 0 };
         }
 
         /// Returns true if `k` is non-empty, false otherwise.
@@ -51,7 +52,7 @@ pub fn CipherState(comptime C: type, allocator: Allocator) type {
             if (!self.hasKey()) return plaintext;
             if (self.n == std.math.maxInt(u64) - 1) return error.NonceExhaustion;
 
-            const ciphertext = Cipher_.encrypt(allocator, self.k, self.n, ad, plaintext) catch |err| {
+            const ciphertext = Cipher_.encrypt(self.allocator, self.k, self.n, ad, plaintext) catch |err| {
                 // Nonce is still incremented if encryption fails.
                 // Reusing a nonce value for n with the same key k for encryption would be catastrophic.
                 // Nonces are not allowed to wrap back to zero due to integer overflow, and the maximum nonce value is reserved.
@@ -68,7 +69,7 @@ pub fn CipherState(comptime C: type, allocator: Allocator) type {
             if (self.n == std.math.maxInt(u64) - 1) return error.NonceExhaustion;
 
             // Nonce is NOT incremented if decryption fails.
-            const plaintext = try Cipher_.decrypt(allocator, self.k, self.n, ad, ciphertext);
+            const plaintext = try Cipher_.decrypt(self.allocator, self.k, self.n, ad, ciphertext);
             self.n += 1;
 
             return plaintext;
@@ -154,8 +155,8 @@ fn testCipher(comptime C: type) !void {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{69} ** 32;
-    var sender = CipherState(C, allocator).init(key);
-    var receiver = CipherState(C, allocator).init(key);
+    var sender = CipherState(C).init(allocator, key);
+    var receiver = CipherState(C).init(allocator, key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
@@ -176,7 +177,7 @@ test "failed encryption returns plaintext" {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{0} ** 32;
-    var sender = CipherState(ChaCha20Poly1305, allocator).init(key);
+    var sender = CipherState(ChaCha20Poly1305).init(allocator, key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
@@ -188,7 +189,7 @@ test "encryption fails on max nonce" {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{1} ** 32;
-    var sender = CipherState(ChaCha20Poly1305, allocator).init(key);
+    var sender = CipherState(ChaCha20Poly1305).init(allocator, key);
     sender.n = std.math.maxInt(u64) - 1;
 
     const retval = sender.encryptWithAd("", "");
