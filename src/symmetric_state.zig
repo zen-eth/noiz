@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const Allocator = std.mem.Allocator;
+
 const CipherState = @import("./cipher.zig").CipherState;
 const Hash = @import("./root.zig").Hash;
 
@@ -18,7 +20,7 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
 
         const Self = @This();
 
-        pub fn init(allocator: std.mem.Allocator, protocol_name: []const u8) Self {
+        pub fn init(allocator: Allocator, protocol_name: []const u8) Self {
             const h = if (protocol_name.len <= HASHLEN) {} else {
                 Hash_.hash(protocol_name, .{});
             };
@@ -34,7 +36,7 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
 
         pub fn mixKey(
             self: *Self,
-            allocator: std.mem.Allocator,
+            allocator: Allocator,
             input_key_material: []const u8,
         ) void {
             // Sets ck, temp_k = HKDF(ck, input_key_material, 2).
@@ -47,7 +49,7 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
             self.cipher_state.init(temp_k);
         }
 
-        pub fn mixHash(self: *Self, allocator: std.mem.Allocator, data: []const u8) void {
+        pub fn mixHash(self: *Self, allocator: Allocator, data: []const u8) void {
             const h_with_data = std.mem.concat(allocator, u8, [_][]const u8{ self.h, data });
             defer allocator.free(h_with_data);
             self.h = Hash_.hash(h_with_data);
@@ -55,7 +57,7 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
 
         /// Used for pre-shared symmetric key (or PSK) mode to support protocols where both parties
         /// have a 32-byte shared secret key.
-        pub fn mixKeyAndHash(self: *Self, allocator: std.mem.Allocator, input_key_material: []const u8) void {
+        pub fn mixKeyAndHash(self: *Self, allocator: Allocator, input_key_material: []const u8) void {
             const output = Hash_.HKDF(allocator, self.ck, input_key_material, 2);
 
             self.ck = output[0];
@@ -68,14 +70,14 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
             return self.h;
         }
 
-        pub fn encryptAndHash(self: *Self, allocator: std.mem.Allocator, plaintext: []const u8) void {
+        pub fn encryptAndHash(self: *Self, allocator: Allocator, plaintext: []const u8) void {
             //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
             const ciphertext = self.cipher_state.encryptWithAd(self.h, plaintext);
             self.mixHash(allocator, ciphertext);
             return ciphertext;
         }
 
-        pub fn decryptAndHash(self: *Self, allocator: std.mem.Allocator, ciphertext: []const u8) void {
+        pub fn decryptAndHash(self: *Self, allocator: Allocator, ciphertext: []const u8) void {
             //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
             const plaintext = self.cipher_state.decryptWithAd(self.h, ciphertext);
             self.mixHash(allocator, ciphertext);
@@ -84,7 +86,7 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
 
         pub fn split(
             self: *Self,
-            allocator: std.mem.Allocator,
+            allocator: Allocator,
             input_key_material: []const u8,
         ) struct { type, type } {
             //
