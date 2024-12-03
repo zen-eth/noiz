@@ -13,13 +13,6 @@ const Blake2b512 = std.crypto.hash.blake2.Blake2b512;
 const CipherState = @import("./cipher.zig").CipherState;
 const SymmetricState = @import("./symmetric_state.zig").SymmetricState;
 
-const HandshakeState = struct {
-    const Self = @This();
-
-    symmetric_state: SymmetricState,
-    dh: DH,
-};
-
 /// Instantiates a Noise hash function.
 ///
 /// Only these hash functions are supported in accordance with the spec: `Sha256`, `Sha512`, `Blake2s256`, `Blake2b512`.
@@ -52,7 +45,7 @@ pub fn Hash(comptime H: type) type {
         /// Hashes some arbitrary-length data with a collision-resistant cryptographic hash function.
         ///
         /// Returns an output of `HASHLEN` bytes.
-        fn hash(input: []const u8) [HASHLEN]u8 {
+        pub fn hash(input: []const u8) [HASHLEN]u8 {
             var out: [HASHLEN]u8 = undefined;
             _Hash.hash(input, &out, .{});
             return out;
@@ -151,20 +144,20 @@ test "hash" {
 /// A Noise Diffie-Hellman function.
 ///
 /// Only Curve25519 is supported, since zig stdlib does not have Curve448 support.
-fn DH() type {
+pub fn DH() type {
     const DHLEN = 32;
-
-    const Keypair = X25519.Keypair;
 
     const Self = @This();
 
     return struct {
+        pub const KeyPair = X25519.KeyPair;
+
         /// Generates a new Diffie-Hellman key pair. A DH key pair consists of public_key and private_key elements.
         /// A public_key represents an encoding of a DH public key into a byte sequence of length `DHLEN`.
         /// The public_key encoding details are specific to each set of DH functions.
         ///
         /// Returns the `Keypair`.
-        fn generateKeypair(seed: ?[32]u8) Keypair {
+        fn generateKeypair(seed: ?[32]u8) KeyPair {
             return X25519.KeyPair.create(seed);
         }
 
@@ -180,5 +173,6 @@ fn DH() type {
 
 test {
     _ = @import("cipher.zig");
+    _ = @import("handshake_state.zig");
     _ = @import("symmetric_state.zig");
 }
