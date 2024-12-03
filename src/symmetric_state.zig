@@ -14,22 +14,34 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
     const HASHLEN = Hash_.len;
 
     return struct {
+        allocator: Allocator,
         cipher_state: CipherState(C),
         ck: [HASHLEN]u8,
         h: [HASHLEN]u8,
 
         const Self = @This();
 
-        pub fn init(allocator: Allocator, protocol_name: []const u8) Self {
-            const h = if (protocol_name.len <= HASHLEN) {} else {
-                Hash_.hash(protocol_name, .{});
-            };
+        pub fn init(allocator: Allocator, protocol_name: []const u8) !Self {
+            var h: [HASHLEN]u8 = undefined;
+            var ck: [HASHLEN]u8 = undefined;
+            if (protocol_name.len <= HASHLEN) {
+                var data: [HASHLEN]u8 = undefined;
+                @memcpy(data[0..protocol_name.len], protocol_name[0..]);
+                for (protocol_name.len..HASHLEN) |i| {
+                    data[i] = 0;
+                }
+                @memcpy(&h, &data);
+            } else {
+                h = Hash_.hash(protocol_name);
+            }
 
-            const cipher_state = CipherState(C, allocator);
-            cipher_state.init([_]u8{0} ** 32);
+            const cipher_state = CipherState(C).init(allocator, [_]u8{0} ** 32);
+
+            @memcpy(&ck, &h);
             return .{
+                .allocator = allocator,
                 .cipher_state = cipher_state,
-                .ck = h,
+                .ck = ck,
                 .h = h,
             };
         }
@@ -107,10 +119,18 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
 
             return .{ c1, c2 };
         }
+
+        pub fn deinit(self: *Self) void {
+            _ = self;
+        }
     };
 }
 
 test "init symmetric state" {
-    const symmetric_state = SymmetricState(Sha256, ChaCha20Poly1305);
+    var symmetric_state = try SymmetricState(Sha256, ChaCha20Poly1305).init(
+        std.testing.allocator,
+        "Noise_XX_25519_AESGCM_SHA256",
+    );
+    defer symmetric_state.deinit();
     std.debug.print("symm = {any}", .{symmetric_state});
 }
