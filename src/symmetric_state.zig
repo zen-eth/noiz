@@ -3,7 +3,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const CipherState = @import("./cipher.zig").CipherState;
-const Hash = @import("./root.zig").Hash;
+const Hash = @import("hash.zig").Hash;
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
