@@ -1,17 +1,6 @@
-//! By convention, root.zig is the root source file when making a library. If
-//! you are making an executable, the convention is to delete this file and
-//! start with main.zig instead.
 const std = @import("std");
 
 const X25519 = std.crypto.dh.X25519;
-
-const Sha256 = std.crypto.hash.sha2.Sha256;
-const Sha512 = std.crypto.hash.sha2.Sha512;
-const Blake2s256 = std.crypto.hash.blake2.Blake2s256;
-const Blake2b512 = std.crypto.hash.blake2.Blake2b512;
-
-const CipherState = @import("./cipher.zig").CipherState;
-const SymmetricState = @import("./symmetric_state.zig").SymmetricState;
 
 /// A Noise Diffie-Hellman function.
 ///

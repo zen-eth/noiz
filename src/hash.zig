@@ -5,9 +5,6 @@ const Sha512 = std.crypto.hash.sha2.Sha512;
 const Blake2s256 = std.crypto.hash.blake2.Blake2s256;
 const Blake2b512 = std.crypto.hash.blake2.Blake2b512;
 
-const CipherState = @import("./cipher.zig").CipherState;
-const SymmetricState = @import("./symmetric_state.zig").SymmetricState;
-
 /// Instantiates a Noise hash function.
 ///
 /// Only these hash functions are supported in accordance with the spec: `Sha256`, `Sha512`, `Blake2s256`, `Blake2b512`.
