@@ -61,8 +61,8 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
             self.cipher_state.init(temp_k);
         }
 
-        pub fn mixHash(self: *Self, allocator: Allocator, data: []const u8) void {
-            const h_with_data = std.mem.concat(allocator, u8, [_][]const u8{ self.h, data });
+        pub fn mixHash(self: *Self, allocator: Allocator, data: []const u8) !void {
+            const h_with_data = try std.mem.concat(allocator, u8, &[_][]const u8{ self.h[0..], data });
             defer allocator.free(h_with_data);
             self.h = Hash_.hash(h_with_data);
         }

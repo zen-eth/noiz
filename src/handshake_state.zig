@@ -17,6 +17,9 @@ const DH_Functions = [_][]const u8{"25519"};
 const Cipher_Functions = [_][]const u8{ "Aes256Gcm", "ChaCha20Poly1305" };
 const Hash_Functions = [_][]const u8{ "Sha256", "Sha512", "Blake2s256", "Blake2b512" };
 
+const CipherState = @import("./cipher.zig").CipherState;
+const Hash = @import("hash.zig").Hash;
+
 pub fn noiseProtocolName() []const u8 {
     return "Noise_";
 }
@@ -108,32 +111,34 @@ test "deriveProtocolName" {
 }
 
 pub fn HandshakeState(comptime H: type, comptime C: type) type {
-    const Self = @This();
-
     return struct {
-        symmetric_state: SymmetricState(H, C),
+        const Self = @This();
 
         /// The local static key pair
-        s: dh.KeyPair,
+        s: ?dh.KeyPair,
 
         /// The local ephemeral key pair
-        e: dh.KeyPair,
+        e: ?dh.KeyPair,
+
         /// rs: The remote party's static public key
-        rs: []u8,
+        rs: ?[]const u8,
 
         /// re: The remote party's ephemeral public key
-        re: []u8,
+        re: ?[]const u8,
 
         /// A party can either be the initiator or the responder.
         /// This is true if `Self` is the intiator.
         initiator: bool,
 
-        message_patterns: [][]const Pattern,
+        message_patterns: []const Pattern = &[_]Pattern{.e},
+
+        symmetric_state: SymmetricState(H, C),
 
         const dh = DH();
 
         /// Initialize(handshake_pattern, initiator, prologue, s, e, rs, re):
         pub fn init(
+            allocator: Allocator,
             handshake_pattern: anytype,
             initiator: bool,
             prologue: []const u8,
@@ -141,17 +146,22 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
             e: ?dh.KeyPair,
             rs: ?[]const u8,
             re: ?[]const u8,
-        ) Self {
-            _ = prologue;
+        ) !Self {
+            const protocol_name = try deriveProtocolName(H, C, allocator, handshake_pattern);
+            defer allocator.free(protocol_name);
+            var sym = try SymmetricState(H, C).init(allocator, protocol_name);
+            try sym.mixHash(allocator, prologue);
+            // TODO: Calls MixHash() once for each public key listed in the pre-messages from handshake_pattern, with the specified public key as input (see Section 7 for an explanation of pre-messages). If both initiator and responder have pre-messages, the initiator's public keys are hashed first. If multiple public keys are listed in either party's pre-message, the public keys are hashed in the order that they are listed.
 
-            deriveProtocolName(handshake_pattern, H, C);
+            // TODO: Sets message_patterns to the message patterns from handshake_pattern.
+
             return .{
+                .symmetric_state = sym,
                 .s = s,
                 .e = e,
                 .rs = rs,
                 .re = re,
                 .initiator = initiator,
-                .message_patterns = handshake_pattern,
             };
         }
 
@@ -168,6 +178,6 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
 }
 
 test "handshake" {
-    const hs_state = HandshakeState(Sha256, ChaCha20Poly1305);
+    const hs_state = try HandshakeState(Sha256, ChaCha20Poly1305).init(std.testing.allocator, .X, false, "", null, null, null, null);
     std.debug.print("hs = {any}", .{hs_state});
 }
