@@ -82,7 +82,7 @@ pub fn Hash(comptime H: type) type {
         }
 
         // TODO: test
-        fn HKDF(
+        pub fn HKDF(
             allocator: std.mem.Allocator,
             chaining_key: []const u8,
             input_key_material: []const u8,

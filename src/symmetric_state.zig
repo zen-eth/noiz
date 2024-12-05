@@ -50,15 +50,15 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
             self: *Self,
             allocator: Allocator,
             input_key_material: []const u8,
-        ) void {
+        ) !void {
             // Sets ck, temp_k = HKDF(ck, input_key_material, 2).
             // If HASHLEN is 64, then truncates temp_k to 32 bytes.
             // Calls InitializeKey(temp_k).
-            const output = Hash_.HKDF(allocator, self.ck, input_key_material, 2);
+            const output = try Hash_.HKDF(allocator, &self.ck, input_key_material, 2);
 
             self.ck = output[0];
             const temp_k = if (HASHLEN == 64) output[1][0..32] else output[1];
-            self.cipher_state.init(temp_k);
+            self.cipher_state = CipherState(C).init(allocator, temp_k);
         }
 
         pub fn mixHash(self: *Self, allocator: Allocator, data: []const u8) !void {
