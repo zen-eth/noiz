@@ -47,6 +47,10 @@ const Pattern = enum {
 ///    K = Static key for responder Known to initiator
 ///    X = Static key for responder Xmitted ("transmitted") to initiator
 const HandshakePattern = enum {
+    N,
+    K,
+    X,
+    I,
     NN,
     NK,
     NX,
@@ -65,7 +69,7 @@ fn deriveProtocolName(
     comptime H: type,
     comptime C: type,
     allocator: Allocator,
-    handshake_pattern: []const u8,
+    handshake_pattern: HandshakePattern,
 ) ![]const u8 {
     const cipher = comptime switch (C) {
         Aes256Gcm => "AESGCM",
@@ -82,7 +86,7 @@ fn deriveProtocolName(
     };
 
     const suffix = DH_Functions[0] ++ "_" ++ cipher ++ "_" ++ hash;
-    const protocol_name = try std.fmt.allocPrint(allocator, "Noise_{s}_{s}", .{ handshake_pattern, suffix });
+    const protocol_name = try std.fmt.allocPrint(allocator, "Noise_{s}_{s}", .{ @tagName(handshake_pattern), suffix });
     return protocol_name;
 }
 
@@ -90,14 +94,14 @@ test "deriveProtocolName" {
     const allocator = std.testing.allocator;
     // Noise_XX_25519_AESGCM_SHA256
     {
-        const protocol_name = try deriveProtocolName(Sha256, Aes256Gcm, allocator, "XX");
+        const protocol_name = try deriveProtocolName(Sha256, Aes256Gcm, allocator, .XX);
         defer allocator.free(protocol_name);
         try std.testing.expectEqualStrings("Noise_XX_25519_AESGCM_SHA256", protocol_name);
     }
 
     // Noise_N_25519_ChaChaPoly_BLAKE2s
     {
-        const protocol_name = try deriveProtocolName(Blake2s256, ChaCha20Poly1305, allocator, "N");
+        const protocol_name = try deriveProtocolName(Blake2s256, ChaCha20Poly1305, allocator, .N);
         defer allocator.free(protocol_name);
         try std.testing.expectEqualStrings("Noise_N_25519_ChaChaPoly_BLAKE2s", protocol_name);
     }
