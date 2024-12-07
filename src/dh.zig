@@ -27,8 +27,6 @@ pub fn DH() type {
     return struct {
         const Self = @This();
 
-        inner: KeyPair,
-
         pub const KeyPair = KeyPair_;
 
         /// Generates a new Diffie-Hellman key pair. A DH key pair consists of public_key and private_key elements.
