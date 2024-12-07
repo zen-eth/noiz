@@ -132,5 +132,4 @@ test "init symmetric state" {
         "Noise_XX_25519_AESGCM_SHA256",
     );
     defer symmetric_state.deinit();
-    std.debug.print("symm = {any}", .{symmetric_state});
 }

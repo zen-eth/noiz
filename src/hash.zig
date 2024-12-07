@@ -115,8 +115,7 @@ test "hmacHash" {
     const ck = [_]u8{1} ** 32;
     const ikm = [_]u8{};
     const allocator = std.testing.allocator;
-    const output = try h.HKDF(allocator, &ck, &ikm, 3);
-    std.debug.print("out = {any}", .{output});
+    _ = try h.HKDF(allocator, &ck, &ikm, 3);
 }
 
 test "hash" {
@@ -130,5 +129,4 @@ test "hash" {
     if (output[2]) |o| {
         errdefer allocator.free(&o);
     }
-    std.debug.print("out = {any}", .{output});
 }

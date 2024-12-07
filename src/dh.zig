@@ -2,7 +2,7 @@ const std = @import("std");
 
 const X25519 = std.crypto.dh.X25519;
 
-pub const KeyPair_ = struct {
+const KeyPair_ = struct {
     const Self = @This();
 
     inner: X25519.KeyPair,

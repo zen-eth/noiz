@@ -231,7 +231,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
     };
 }
 
-test "handshake" {
+test "writeMessage - simple" {
     var alice_handshake = try HandshakeState(Sha256, ChaCha20Poly1305).init(
         std.testing.allocator,
         .XX,
@@ -248,7 +248,8 @@ test "handshake" {
         null,
     );
     var buf = ArrayList(u8).init(std.testing.allocator);
+    try buf.appendSlice("hello ");
     defer buf.deinit();
-    try alice_handshake.writeMessage("world", &buf);
-    std.debug.print("hs = {any}", .{alice_handshake});
+    try alice_handshake.writeMessage("world!", &buf);
+    try std.testing.expectEqualStrings("hello world!", buf.items);
 }
