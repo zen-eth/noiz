@@ -4,7 +4,7 @@ const ArrayList = std.ArrayList;
 
 const SymmetricState = @import("symmetric_state.zig").SymmetricState;
 
-const DH = @import("root.zig").DH;
+const DH = @import("dh.zig").DH;
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
