@@ -82,40 +82,37 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
             return self.h;
         }
 
-        pub fn encryptAndHash(self: *Self, allocator: Allocator, plaintext: []const u8) void {
+        pub fn encryptAndHash(self: *Self, allocator: Allocator, plaintext: []const u8) ![]const u8 {
             //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
-            const ciphertext = self.cipher_state.encryptWithAd(self.h, plaintext);
-            self.mixHash(allocator, ciphertext);
+            const ciphertext = try self.cipher_state.encryptWithAd(&self.h, plaintext);
+            try self.mixHash(allocator, ciphertext);
             return ciphertext;
         }
 
-        pub fn decryptAndHash(self: *Self, allocator: Allocator, ciphertext: []const u8) void {
+        pub fn decryptAndHash(self: *Self, allocator: Allocator, ciphertext: []const u8) ![]const u8 {
             //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
-            const plaintext = self.cipher_state.decryptWithAd(self.h, ciphertext);
-            self.mixHash(allocator, ciphertext);
+            const plaintext = try self.cipher_state.decryptWithAd(&self.h, ciphertext);
+            try self.mixHash(allocator, ciphertext);
             return plaintext;
         }
 
         pub fn split(
             self: *Self,
             allocator: Allocator,
-            input_key_material: []const u8,
-        ) struct { type, type } {
+        ) !struct { CipherState(C), CipherState(C) } {
             //
             //    Sets temp_k1, temp_k2 = HKDF(ck, zerolen, 2).
             //    If HASHLEN is 64, then truncates temp_k1 and temp_k2 to 32 bytes.
             //    Creates two new CipherState objects c1 and c2.
             //    Calls c1.InitializeKey(temp_k1) and c2.InitializeKey(temp_k2).
             //    Returns the pair (c1, c2).
-            const output = Hash_.HKDF(allocator, self.ck, input_key_material, 2);
+            const output = try Hash_.HKDF(allocator, &self.ck, &[_]u8{}, 2);
 
             const temp_k1 = if (HASHLEN == 64) output[0][0..32] else output[0];
             const temp_k2 = if (HASHLEN == 64) output[1][0..32] else output[1];
 
-            var c1 = CipherState(C, allocator);
-            var c2 = CipherState(C, allocator);
-            c1.init(temp_k1);
-            c2.init(temp_k2);
+            const c1 = CipherState(C).init(allocator, temp_k1);
+            const c2 = CipherState(C).init(allocator, temp_k2);
 
             return .{ c1, c2 };
         }

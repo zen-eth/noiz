@@ -20,6 +20,8 @@ pub fn CipherState(comptime C: type) type {
     const Cipher_ = Cipher(C);
 
     return struct {
+        const Self = @This();
+
         allocator: Allocator, 
         /// A cipher key of 32 bytes (which may be empty).
         ///
@@ -28,8 +30,6 @@ pub fn CipherState(comptime C: type) type {
 
         /// An 8-byte (64-bit) unsigned integer nonce.
         n: u64,
-
-        const Self = @This();
 
         /// Sets `k` = `key` and `n` = 0.
         pub fn init(allocator: Allocator, key: [32]u8) Self {

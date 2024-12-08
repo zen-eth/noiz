@@ -77,12 +77,12 @@ const HandshakePatternName = enum {
     IX,
 };
 
-const MessagePattern = []MessageToken;
+const MessagePattern = []const MessageToken;
 
 const HandshakePattern = struct {
     pre_message_pattern_initiator: ?PreMessagePattern,
     pre_message_pattern_responder: ?PreMessagePattern,
-    message_pattern: []MessagePattern,
+    message_patterns: []MessagePattern,
 };
 
 fn deriveProtocolName(
@@ -150,7 +150,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
         /// This is true if `Self` is the intiator.
         is_initiator: bool,
 
-        message_patterns: []const MessageToken = &[_]MessageToken{.e},
+        message_patterns: ArrayList(MessagePattern),
 
         symmetric_state: SymmetricState(H, C),
 
@@ -187,7 +187,9 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
                 try sym.mixHash(allocator, @tagName(r));
             }
 
+            const message_patterns = ArrayList(MessagePattern).fromOwnedSlice(allocator, handshake_pattern.message_patterns);
             return .{
+                .message_patterns = message_patterns,
                 .allocator = allocator,
                 .symmetric_state = sym,
                 .s = s,
@@ -198,58 +200,155 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
             };
         }
 
-        fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !void {
-            for (self.message_patterns) |pattern| {
-                switch (pattern) {
+        fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState(C), CipherState(C) } {
+            if (self.message_patterns.items.len == 0) {
+                return try self.symmetric_state.split(self.allocator);
+            }
+
+            const message_pattern = self.message_patterns.pop();
+            for (message_pattern) |token| {
+                switch (token) {
                     .e => {
-                        const keypair = (try dh.generateKeypair(null));
+                        const keypair = try dh.generateKeypair(null);
                         self.e = keypair;
-                        try message.appendSlice(payload);
-                        try self.symmetric_state.mixHash(self.allocator, &self.e.?.inner.public_key);
+                        const pubkey = keypair.inner.public_key;
+                        try message.appendSlice(&pubkey);
+                        try self.symmetric_state.mixHash(self.allocator, &pubkey);
                     },
                     .s => {
-                        // TODO: append encrypt & hash
+                        const h = try self.symmetric_state.encryptAndHash(self.allocator, &self.s.?.inner.public_key);
+                        try message.appendSlice(h);
                     },
                     .ee => try self.symmetric_state.mixKey(self.allocator, &try self.e.?.DH(self.re.?)),
                     .es => {
-                        const out = if (self.is_initiator) .{ self.rs, self.e } else .{ self.re, self.s };
-                        const ikm = out[0].?;
-                        var keypair = out[1].?;
-                        try self.symmetric_state.mixKey(self.allocator, &try keypair.DH(ikm));
+                        var keypair, const ikm = if (self.is_initiator) .{ self.e, self.rs } else .{ self.s, self.re };
+                        try self.symmetric_state.mixKey(self.allocator, &try keypair.?.DH(ikm.?));
                     },
-                    .se => {},
-                    .ss => try self.symmetric_state.mixKey(self.allocator, &try self.e.?.DH(self.rs.?)),
-                    .psk => {},
+                    .se => {
+                        var keypair, const ikm = if (self.is_initiator) .{ self.s, self.re } else .{ self.e, self.rs };
+                        try self.symmetric_state.mixKey(self.allocator, &try keypair.?.DH(ikm.?));
+                    },
+                    .ss => try self.symmetric_state.mixKey(self.allocator, &try self.s.?.DH(self.rs.?)),
+                    .psk => {
+                        // no-op
+                    },
                 }
             }
+
+            const h = try self.symmetric_state.encryptAndHash(self.allocator, payload);
+            try message.appendSlice(h);
+
+            return null;
         }
 
-        fn readMessage(message: []const u8, payload_buf: *[]u8) void {
-            _ = payload_buf;
-            _ = message;
+        fn readMessage(self: *Self, message: []const u8, payload_buf: *ArrayList(u8)) !?struct { CipherState(C), CipherState(C) } {
+            if (self.message_patterns.items.len == 0) {
+                return try self.symmetric_state.split(self.allocator);
+            }
+
+            const message_pattern = self.message_patterns.pop();
+            var msg_idx: usize = 0;
+            for (message_pattern) |token| {
+                switch (token) {
+                    .e => {
+                        std.debug.assert(self.re == null);
+                        self.re = undefined;
+                        std.debug.print("msg idx = {any}\n", .{msg_idx});
+                        @memcpy(&self.re.?, message[msg_idx .. msg_idx + dh.KeyPair.DHLEN]);
+                        msg_idx += dh.KeyPair.DHLEN;
+                        try self.symmetric_state.mixHash(self.allocator, &self.re.?);
+                    },
+                    .s => {
+                        const len: usize = if (self.symmetric_state.cipher_state.hasKey()) dh.KeyPair.DHLEN + 16 else dh.KeyPair.DHLEN;
+                        const temp = if (self.symmetric_state.cipher_state.hasKey()) message[msg_idx .. msg_idx + len] else message[msg_idx .. msg_idx + len];
+
+                        msg_idx += len;
+                        @memcpy(&self.rs.?, try self.symmetric_state.decryptAndHash(self.allocator, temp));
+                    },
+                    .ee => try self.symmetric_state.mixKey(self.allocator, &self.re.?),
+                    .es => {
+                        var keypair, const ikm = if (self.is_initiator) .{ self.e, self.rs } else .{ self.s, self.re };
+                        try self.symmetric_state.mixKey(self.allocator, &try keypair.?.DH(ikm.?));
+                    },
+                    .se => {
+                        var keypair, const ikm = if (self.is_initiator) .{ self.s, self.re } else .{ self.e, self.rs };
+                        try self.symmetric_state.mixKey(self.allocator, &try keypair.?.DH(ikm.?));
+                    },
+                    .ss => try self.symmetric_state.mixKey(self.allocator, &try self.s.?.DH(self.rs.?)),
+                    .psk => {
+                        // no-op
+                    },
+                }
+            }
+            const h = try self.symmetric_state.decryptAndHash(self.allocator, message[msg_idx..]);
+            try payload_buf.appendSlice(h);
+
+            return null;
         }
     };
 }
 
 test "writeMessage - simple" {
-    var alice_handshake = try HandshakeState(Sha256, ChaCha20Poly1305).init(
+    const hs_state = HandshakeState(Blake2s256, ChaCha20Poly1305);
+
+    var seed = [_]u8{1} ** 32;
+    const alice_static = try hs_state.dh.generateKeypair(seed);
+    seed = [_]u8{2} ** 32;
+    const bob_static = try hs_state.dh.generateKeypair(seed);
+
+    var msg_patterns = [_]MessagePattern{&[_]MessageToken{.e}};
+
+    var alice_handshake = try hs_state.init(
         std.testing.allocator,
-        .XX,
+        .X,
         .{
             .pre_message_pattern_initiator = null,
             .pre_message_pattern_responder = null,
-            .message_pattern = &[_]MessagePattern{},
+            .message_patterns = &msg_patterns,
         },
-        false,
+        true,
         "",
+        alice_static,
         null,
-        null,
-        null,
+        bob_static.inner.public_key,
         null,
     );
     var buf = ArrayList(u8).init(std.testing.allocator);
     try buf.appendSlice("hello ");
     defer buf.deinit();
-    try alice_handshake.writeMessage("world!", &buf);
-    try std.testing.expectEqualStrings("hello world!", buf.items);
+    _ = try alice_handshake.writeMessage("world!", &buf);
+}
+
+test "empty patterns" {
+    const C = ChaCha20Poly1305;
+    const hs_state = HandshakeState(Blake2s256, C);
+
+    var seed = [_]u8{1} ** 32;
+    const alice_static = try hs_state.dh.generateKeypair(seed);
+    seed = [_]u8{2} ** 32;
+    const bob_static = try hs_state.dh.generateKeypair(seed);
+
+    var msg_patterns = [_]MessagePattern{};
+
+    var alice_handshake = try hs_state.init(
+        std.testing.allocator,
+        .X,
+        .{
+            .pre_message_pattern_initiator = null,
+            .pre_message_pattern_responder = null,
+            .message_patterns = &msg_patterns,
+        },
+        true,
+        "",
+        alice_static,
+        null,
+        bob_static.inner.public_key,
+        null,
+    );
+    var buf = ArrayList(u8).init(std.testing.allocator);
+    try buf.appendSlice("hello ");
+    defer buf.deinit();
+    const out = try alice_handshake.writeMessage("world!", &buf);
+    try std.testing.expect(@TypeOf(out.?[0]) == CipherState(C));
+    try std.testing.expect(@TypeOf(out.?[1]) == CipherState(C));
 }
