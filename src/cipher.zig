@@ -22,7 +22,7 @@ pub fn CipherState(comptime C: type) type {
     return struct {
         const Self = @This();
 
-        allocator: Allocator, 
+        allocator: Allocator,
         /// A cipher key of 32 bytes (which may be empty).
         ///
         /// Empty is a special value which indicates `k` has not yet been initialized.
@@ -74,6 +74,10 @@ pub fn CipherState(comptime C: type) type {
 
             return plaintext;
         }
+
+        pub fn rekey(self: *Self) !void {
+            self.k = try Cipher_.rekey(self.allocator, self.k);
+        }
     };
 }
 
@@ -82,7 +86,6 @@ pub fn CipherState(comptime C: type) type {
 /// Only these ciphers are supported in accordance with the spec: `Aes256Gcm`, `ChaCha20Poly1305`.
 ///
 /// https://noiseprotocol.org/noise.html#cipher-functions
-// TODO: implement rekey
 fn Cipher(comptime C: type) type {
     comptime switch (C) {
         Aes256Gcm, ChaCha20Poly1305 => {},
@@ -148,6 +151,14 @@ fn Cipher(comptime C: type) type {
 
             return plaintext;
         }
+
+        fn rekey(allocator: Allocator, k: [key_length]u8) ![32]u8 {
+            var plaintext: [32]u8 = undefined;
+            const enc = try encrypt(allocator, k, std.math.maxInt(u64), &[_]u8{}, &[_]u8{0} ** 32);
+            defer allocator.free(enc);
+            @memcpy(&plaintext, enc[0..32]);
+            return plaintext;
+        }
     };
 }
 
@@ -194,4 +205,23 @@ test "encryption fails on max nonce" {
 
     const retval = sender.encryptWithAd("", "");
     try testing.expectError(error.NonceExhaustion, retval);
+}
+
+test "rekey" {
+    const allocator = std.testing.allocator;
+
+    const key = [_]u8{1} ** 32;
+    var sender = CipherState(ChaCha20Poly1305).init(allocator, key);
+
+    const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+    const ad = "Additional data";
+
+    const ciphertext1 = try sender.encryptWithAd(ad, m);
+    defer allocator.free(ciphertext1);
+
+    try sender.rekey();
+    const ciphertext2 = try sender.encryptWithAd(ad, m);
+    defer allocator.free(ciphertext2);
+    // rekeying actually changed keys
+    try std.testing.expect(!std.mem.eql(u8, ciphertext1, ciphertext2));
 }
