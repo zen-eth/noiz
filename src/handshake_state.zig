@@ -174,22 +174,12 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
             defer allocator.free(protocol_name);
             var sym = try SymmetricState(H, C).init(allocator, protocol_name);
             try sym.mixHash(prologue);
-            // TODO: Calls MixHash() once for each public key listed in the pre-messages from handshake_pattern, with the specified public key as input (see Section 7 for an explanation of pre-messages). If both initiator and responder have pre-messages, the initiator's public keys are hashed first. If multiple public keys are listed in either party's pre-message, the public keys are hashed in the order that they are listed.
+            // The initiator's public key(s) are always hashed first.
+            if (handshake_pattern.pre_message_pattern_initiator) |i| try sym.mixHash(@tagName(i));
+            if (handshake_pattern.pre_message_pattern_responder) |r| try sym.mixHash(@tagName(r));
 
-            // TODO: Sets message_patterns to the message patterns from handshake_pattern.
-            //
-            // pre message: e // s // e, s // empty
-
-            if (handshake_pattern.pre_message_pattern_initiator) |i| {
-                try sym.mixHash(@tagName(i));
-            }
-            if (handshake_pattern.pre_message_pattern_responder) |r| {
-                try sym.mixHash(@tagName(r));
-            }
-
-            const message_patterns = ArrayList(MessagePattern).fromOwnedSlice(allocator, handshake_pattern.message_patterns);
             return .{
-                .message_patterns = message_patterns,
+                .message_patterns = ArrayList(MessagePattern).fromOwnedSlice(allocator, handshake_pattern.message_patterns),
                 .allocator = allocator,
                 .symmetric_state = sym,
                 .s = s,
@@ -285,6 +275,12 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
 
             return null;
         }
+
+        pub fn deinit(self: *Self) void {
+            if (self.message_patterns.items.len != 0) {
+                self.message_patterns.deinit();
+            }
+        }
     };
 }
 
@@ -313,6 +309,8 @@ test "writeMessage - simple" {
         bob_static.inner.public_key,
         null,
     );
+    defer alice_handshake.deinit();
+
     var buf = ArrayList(u8).init(std.testing.allocator);
     try buf.appendSlice("hello ");
     defer buf.deinit();
