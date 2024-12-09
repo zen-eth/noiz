@@ -50,7 +50,7 @@ pub fn CipherState(comptime C: type) type {
         /// If `k` is non-empty returns `Cipher_.encrypt(k, n++, ad, plaintext). Otherwise return plaintext.
         pub fn encryptWithAd(self: *Self, ad: []const u8, plaintext: []const u8) CipherError![]const u8 {
             if (!self.hasKey()) return plaintext;
-            if (self.n == std.math.maxInt(u64) - 1) return error.NonceExhaustion;
+            if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
             const ciphertext = Cipher_.encrypt(self.allocator, self.k, self.n, ad, plaintext) catch |err| {
                 // Nonce is still incremented if encryption fails.
@@ -66,7 +66,7 @@ pub fn CipherState(comptime C: type) type {
 
         pub fn decryptWithAd(self: *Self, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
             if (!self.hasKey()) return ciphertext;
-            if (self.n == std.math.maxInt(u64) - 1) return error.NonceExhaustion;
+            if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
             // Nonce is NOT incremented if decryption fails.
             const plaintext = try Cipher_.decrypt(self.allocator, self.k, self.n, ad, ciphertext);
@@ -190,7 +190,7 @@ test "encryption fails on max nonce" {
 
     const key = [_]u8{1} ** 32;
     var sender = CipherState(ChaCha20Poly1305).init(allocator, key);
-    sender.n = std.math.maxInt(u64) - 1;
+    sender.n = std.math.maxInt(u64);
 
     const retval = sender.encryptWithAd("", "");
     try testing.expectError(error.NonceExhaustion, retval);
