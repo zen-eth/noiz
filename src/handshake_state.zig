@@ -173,7 +173,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
             const protocol_name = try deriveProtocolName(H, C, allocator, handshake_pattern_name);
             defer allocator.free(protocol_name);
             var sym = try SymmetricState(H, C).init(allocator, protocol_name);
-            try sym.mixHash(allocator, prologue);
+            try sym.mixHash(prologue);
             // TODO: Calls MixHash() once for each public key listed in the pre-messages from handshake_pattern, with the specified public key as input (see Section 7 for an explanation of pre-messages). If both initiator and responder have pre-messages, the initiator's public keys are hashed first. If multiple public keys are listed in either party's pre-message, the public keys are hashed in the order that they are listed.
 
             // TODO: Sets message_patterns to the message patterns from handshake_pattern.
@@ -181,10 +181,10 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
             // pre message: e // s // e, s // empty
 
             if (handshake_pattern.pre_message_pattern_initiator) |i| {
-                try sym.mixHash(allocator, @tagName(i));
+                try sym.mixHash(@tagName(i));
             }
             if (handshake_pattern.pre_message_pattern_responder) |r| {
-                try sym.mixHash(allocator, @tagName(r));
+                try sym.mixHash(@tagName(r));
             }
 
             const message_patterns = ArrayList(MessagePattern).fromOwnedSlice(allocator, handshake_pattern.message_patterns);
@@ -202,7 +202,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
 
         fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState(C), CipherState(C) } {
             if (self.message_patterns.items.len == 0) {
-                return try self.symmetric_state.split(self.allocator);
+                return try self.symmetric_state.split();
             }
 
             const message_pattern = self.message_patterns.pop();
@@ -213,29 +213,29 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
                         self.e = keypair;
                         const pubkey = keypair.inner.public_key;
                         try message.appendSlice(&pubkey);
-                        try self.symmetric_state.mixHash(self.allocator, &pubkey);
+                        try self.symmetric_state.mixHash(&pubkey);
                     },
                     .s => {
-                        const h = try self.symmetric_state.encryptAndHash(self.allocator, &self.s.?.inner.public_key);
+                        const h = try self.symmetric_state.encryptAndHash(&self.s.?.inner.public_key);
                         try message.appendSlice(h);
                     },
-                    .ee => try self.symmetric_state.mixKey(self.allocator, &try self.e.?.DH(self.re.?)),
+                    .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
                     .es => {
                         var keypair, const ikm = if (self.is_initiator) .{ self.e, self.rs } else .{ self.s, self.re };
-                        try self.symmetric_state.mixKey(self.allocator, &try keypair.?.DH(ikm.?));
+                        try self.symmetric_state.mixKey(&try keypair.?.DH(ikm.?));
                     },
                     .se => {
                         var keypair, const ikm = if (self.is_initiator) .{ self.s, self.re } else .{ self.e, self.rs };
-                        try self.symmetric_state.mixKey(self.allocator, &try keypair.?.DH(ikm.?));
+                        try self.symmetric_state.mixKey(&try keypair.?.DH(ikm.?));
                     },
-                    .ss => try self.symmetric_state.mixKey(self.allocator, &try self.s.?.DH(self.rs.?)),
+                    .ss => try self.symmetric_state.mixKey(&try self.s.?.DH(self.rs.?)),
                     .psk => {
                         // no-op
                     },
                 }
             }
 
-            const h = try self.symmetric_state.encryptAndHash(self.allocator, payload);
+            const h = try self.symmetric_state.encryptAndHash(payload);
             try message.appendSlice(h);
 
             return null;
@@ -243,7 +243,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
 
         fn readMessage(self: *Self, message: []const u8, payload_buf: *ArrayList(u8)) !?struct { CipherState(C), CipherState(C) } {
             if (self.message_patterns.items.len == 0) {
-                return try self.symmetric_state.split(self.allocator);
+                return try self.symmetric_state.split();
             }
 
             const message_pattern = self.message_patterns.pop();
@@ -256,14 +256,14 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
                         std.debug.print("msg idx = {any}\n", .{msg_idx});
                         @memcpy(&self.re.?, message[msg_idx .. msg_idx + dh.KeyPair.DHLEN]);
                         msg_idx += dh.KeyPair.DHLEN;
-                        try self.symmetric_state.mixHash(self.allocator, &self.re.?);
+                        try self.symmetric_state.mixHash(&self.re.?);
                     },
                     .s => {
                         const len: usize = if (self.symmetric_state.cipher_state.hasKey()) dh.KeyPair.DHLEN + 16 else dh.KeyPair.DHLEN;
                         const temp = if (self.symmetric_state.cipher_state.hasKey()) message[msg_idx .. msg_idx + len] else message[msg_idx .. msg_idx + len];
 
                         msg_idx += len;
-                        @memcpy(&self.rs.?, try self.symmetric_state.decryptAndHash(self.allocator, temp));
+                        @memcpy(&self.rs.?, try self.symmetric_state.decryptAndHash(temp));
                     },
                     .ee => try self.symmetric_state.mixKey(self.allocator, &self.re.?),
                     .es => {
@@ -280,7 +280,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
                     },
                 }
             }
-            const h = try self.symmetric_state.decryptAndHash(self.allocator, message[msg_idx..]);
+            const h = try self.symmetric_state.decryptAndHash(message[msg_idx..]);
             try payload_buf.appendSlice(h);
 
             return null;
