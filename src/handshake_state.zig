@@ -174,6 +174,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
             defer allocator.free(protocol_name);
             var sym = try SymmetricState(H, C).init(allocator, protocol_name);
             try sym.mixHash(prologue);
+
             // The initiator's public key(s) are always hashed first.
             if (handshake_pattern.pre_message_pattern_initiator) |i| try sym.mixHash(@tagName(i));
             if (handshake_pattern.pre_message_pattern_responder) |r| try sym.mixHash(@tagName(r));
