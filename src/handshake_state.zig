@@ -152,7 +152,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
 
         message_patterns: ArrayList(MessagePattern),
 
-        symmetric_state: SymmetricState(H, C),
+        symmetric_state: SymmetricState(H),
 
         /// A handshake pattern name section contains a handshake pattern name plus a sequence of zero or more pattern modifiers.
         pub const HandshakePatternNameSection: []const u8 = [_][]const u8{};
@@ -172,7 +172,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
         ) !Self {
             const protocol_name = try deriveProtocolName(H, C, allocator, handshake_pattern_name);
             defer allocator.free(protocol_name);
-            var sym = try SymmetricState(H, C).init(allocator, protocol_name);
+            var sym = try SymmetricState(H).init(allocator, protocol_name);
             try sym.mixHash(prologue);
 
             // The initiator's public key(s) are always hashed first.
@@ -191,7 +191,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
             };
         }
 
-        fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState(C), CipherState(C) } {
+        fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState, CipherState } {
             if (self.message_patterns.items.len == 0) {
                 return try self.symmetric_state.split();
             }
@@ -232,7 +232,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
             return null;
         }
 
-        fn readMessage(self: *Self, message: []const u8, payload_buf: *ArrayList(u8)) !?struct { CipherState(C), CipherState(C) } {
+        fn readMessage(self: *Self, message: []const u8, payload_buf: *ArrayList(u8)) !?struct { CipherState, CipherState } {
             if (self.message_patterns.items.len == 0) {
                 return try self.symmetric_state.split();
             }
@@ -348,6 +348,6 @@ test "empty patterns" {
     try buf.appendSlice("hello ");
     defer buf.deinit();
     const out = try alice_handshake.writeMessage("world!", &buf);
-    try std.testing.expect(@TypeOf(out.?[0]) == CipherState(C));
-    try std.testing.expect(@TypeOf(out.?[1]) == CipherState(C));
+    try std.testing.expect(@TypeOf(out.?[0]) == CipherState);
+    try std.testing.expect(@TypeOf(out.?[1]) == CipherState);
 }

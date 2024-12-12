@@ -8,14 +8,15 @@ const Hash = @import("hash.zig").Hash;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
-pub fn SymmetricState(comptime H: type, comptime C: type) type {
+pub fn SymmetricState(comptime H: type) type {
     const Hash_ = Hash(H);
 
     const HASHLEN = Hash_.len;
 
     return struct {
         allocator: Allocator,
-        cipher_state: CipherState(C),
+        cipher_choice: [10]u8,
+        cipher_state: CipherState,
         ck: [HASHLEN]u8,
         h: [HASHLEN]u8,
 
@@ -34,12 +35,20 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
             } else {
                 h = Hash_.hash(protocol_name);
             }
+            var split_it = std.mem.splitScalar(u8, protocol_name, '_');
+            _ = split_it.next().?;
+            _ = split_it.next().?;
+            _ = split_it.next().?;
+            var cipher_choice: [10]u8 = undefined;
+            std.mem.copyForwards(u8, &cipher_choice, split_it.next().?);
+            std.debug.print("protocol = {s}\n", .{protocol_name});
 
-            const cipher_state = CipherState(C).init(allocator, [_]u8{0} ** 32);
+            const cipher_state = CipherState.init(&cipher_choice, allocator, [_]u8{0} ** 32);
 
             @memcpy(&ck, &h);
             return .{
                 .allocator = allocator,
+                .cipher_choice = cipher_choice,
                 .cipher_state = cipher_state,
                 .ck = ck,
                 .h = h,
@@ -57,7 +66,7 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
 
             self.ck = output[0];
             const temp_k = if (HASHLEN == 64) output[1][0..32] else output[1];
-            self.cipher_state = CipherState(C).init(self.allocator, temp_k);
+            self.cipher_state = CipherState.init(&self.cipher_choice, self.allocator, temp_k);
         }
 
         pub fn mixHash(self: *Self, data: []const u8) !void {
@@ -97,7 +106,7 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
 
         pub fn split(
             self: *Self,
-        ) !struct { CipherState(C), CipherState(C) } {
+        ) !struct { CipherState, CipherState } {
             //
             //    Sets temp_k1, temp_k2 = HKDF(ck, zerolen, 2).
             //    If HASHLEN is 64, then truncates temp_k1 and temp_k2 to 32 bytes.
@@ -109,8 +118,8 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
             const temp_k1 = if (HASHLEN == 64) output[0][0..32] else output[0];
             const temp_k2 = if (HASHLEN == 64) output[1][0..32] else output[1];
 
-            const c1 = CipherState(C).init(self.allocator, temp_k1);
-            const c2 = CipherState(C).init(self.allocator, temp_k2);
+            const c1 = CipherState.init(&self.cipher_choice, self.allocator, temp_k1);
+            const c2 = CipherState.init(&self.cipher_choice, self.allocator, temp_k2);
 
             return .{ c1, c2 };
         }
@@ -122,7 +131,7 @@ pub fn SymmetricState(comptime H: type, comptime C: type) type {
 }
 
 test "init symmetric state" {
-    var symmetric_state = try SymmetricState(Sha256, ChaCha20Poly1305).init(
+    var symmetric_state = try SymmetricState(Sha256).init(
         std.testing.allocator,
         "Noise_XX_25519_AESGCM_SHA256",
     );

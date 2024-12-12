@@ -15,8 +15,37 @@ const CipherError = error{
     AuthenticationFailed,
 };
 
+pub const CipherState_ChaCha = CipherState_(ChaCha20Poly1305);
+pub const CipherState_AesGcm = CipherState_(Aes256Gcm);
+
+pub const CipherState = union(enum) {
+    chacha: CipherState_ChaCha,
+    aesgcm: CipherState_AesGcm,
+
+    pub fn init(cipher_st: []const u8, allocator: Allocator, key: [32]u8) CipherState {
+        return switch (std.mem.eql(u8, cipher_st, "ChaChaPoly")) {
+            true => CipherState{ .chacha = CipherState_(ChaCha20Poly1305).init(allocator, key) },
+            false => CipherState{ .aesgcm = CipherState_(Aes256Gcm).init(allocator, key) },
+        };
+    }
+
+    pub fn encryptWithAd(self: *CipherState, ad: []const u8, plaintext: []const u8) ![]const u8 {
+        switch (self.*) {
+            .chacha => return self.chacha.encryptWithAd(ad, plaintext),
+            .aesgcm => return self.aesgcm.encryptWithAd(ad, plaintext),
+        }
+    }
+
+    pub fn decryptWithAd(self: *CipherState, ad: []const u8, ciphertext: []const u8) ![]const u8 {
+        switch (self.*) {
+            .chacha => return self.chacha.decryptWithAd(ad, ciphertext),
+            .aesgcm => return self.aesgcm.decryptWithAd(ad, ciphertext),
+        }
+    }
+};
+
 /// spec: https://noiseprotocol.org/noise.html#the-cipherstate-object
-pub fn CipherState(comptime C: type) type {
+fn CipherState_(comptime C: type) type {
     const Cipher_ = Cipher(C);
 
     return struct {
@@ -166,8 +195,8 @@ fn testCipher(comptime C: type) !void {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{69} ** 32;
-    var sender = CipherState(C).init(allocator, key);
-    var receiver = CipherState(C).init(allocator, key);
+    var sender = CipherState_(C).init(allocator, key);
+    var receiver = CipherState_(C).init(allocator, key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
@@ -188,7 +217,7 @@ test "failed encryption returns plaintext" {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{0} ** 32;
-    var sender = CipherState(ChaCha20Poly1305).init(allocator, key);
+    var sender = CipherState_(ChaCha20Poly1305).init(allocator, key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
@@ -200,7 +229,7 @@ test "encryption fails on max nonce" {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{1} ** 32;
-    var sender = CipherState(ChaCha20Poly1305).init(allocator, key);
+    var sender = CipherState_(ChaCha20Poly1305).init(allocator, key);
     sender.n = std.math.maxInt(u64);
 
     const retval = sender.encryptWithAd("", "");
@@ -211,7 +240,7 @@ test "rekey" {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{1} ** 32;
-    var sender = CipherState(ChaCha20Poly1305).init(allocator, key);
+    var sender = CipherState_(ChaCha20Poly1305).init(allocator, key);
 
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
