@@ -82,8 +82,6 @@ test "snow" {
 
     var i: usize = 0;
     for (data.value.vectors) |vector| {
-        std.debug.print("vectors = {s}\n", .{vector.protocol_name});
-
         var split_it = std.mem.splitScalar(u8, vector.protocol_name, '_');
         _ = split_it.next().?;
         _ = split_it.next().?;

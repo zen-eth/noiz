@@ -39,9 +39,9 @@ pub fn SymmetricState(comptime H: type) type {
             _ = split_it.next().?;
             _ = split_it.next().?;
             _ = split_it.next().?;
-            var cipher_choice: [10]u8 = undefined;
-            std.mem.copyForwards(u8, &cipher_choice, split_it.next().?);
-            std.debug.print("protocol = {s}\n", .{protocol_name});
+            var cipher_choice = [_]u8{0} ** 10;
+            const cipher_choice_st = split_it.next().?;
+            std.mem.copyForwards(u8, &cipher_choice, cipher_choice_st);
 
             const cipher_state = CipherState.init(&cipher_choice, allocator, [_]u8{0} ** 32);
 

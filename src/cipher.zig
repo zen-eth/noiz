@@ -15,17 +15,25 @@ const CipherError = error{
     AuthenticationFailed,
 };
 
-pub const CipherState_ChaCha = CipherState_(ChaCha20Poly1305);
-pub const CipherState_AesGcm = CipherState_(Aes256Gcm);
+/// Choice of cipher in a noise protocol. These must be stylized like in the [protocol specification]
+/// for `std.meta.stringToEnum` to work as intended.
+///
+/// [protocol specification]: https://noiseprotocol.org/noise.html#protocol-names-and-modifiers
+const CipherChoice = enum {
+    ChaChaPoly,
+    AESGCM,
+};
 
 pub const CipherState = union(enum) {
-    chacha: CipherState_ChaCha,
-    aesgcm: CipherState_AesGcm,
+    chacha: CipherState_(ChaCha20Poly1305),
+    aesgcm: CipherState_(Aes256Gcm),
 
     pub fn init(cipher_st: []const u8, allocator: Allocator, key: [32]u8) CipherState {
-        return switch (std.mem.eql(u8, cipher_st, "ChaChaPoly")) {
-            true => CipherState{ .chacha = CipherState_(ChaCha20Poly1305).init(allocator, key) },
-            false => CipherState{ .aesgcm = CipherState_(Aes256Gcm).init(allocator, key) },
+        const len = std.mem.sliceTo(cipher_st, 0).len;
+        const cipher_choice = std.meta.stringToEnum(CipherChoice, cipher_st[0..len]);
+        return switch (cipher_choice.?) {
+            .ChaChaPoly => CipherState{ .chacha = CipherState_(ChaCha20Poly1305).init(allocator, key) },
+            .AESGCM => CipherState{ .aesgcm = CipherState_(Aes256Gcm).init(allocator, key) },
         };
     }
 
