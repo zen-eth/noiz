@@ -48,27 +48,31 @@ const Vectors = struct {
     vectors: []const Vector,
 };
 
-fn protocolFromName(protocol_name: []const u8) type {
+const Protocol = struct {
+    const Self = @This();
+
+    pattern: []const u8,
+    dh: []const u8,
+    cipher: []const u8,
+    hash: []const u8,
+};
+
+pub fn protocolFromName(protocol_name: []const u8) Protocol {
     var split_it = std.mem.splitScalar(u8, protocol_name, '_');
     _ = split_it.next().?;
-    //    const dh = split_it.next().?;
-    //    const cipher = split_it.next().?;
-    //    const hash = split_it.next().?;
+    const pattern = split_it.next().?;
+    const dh = split_it.next().?;
+    const cipher = split_it.next().?;
+    const hash = split_it.next().?;
+    std.debug.assert(split_it.next() == null);
 
-    return NameToProtocol.get(protocol_name);
-    //    switch (std.mem.eql(u8, protocol_name, "ChaChaPoly")) {
-    //        inline true, false => {
-    //            return CipherStateChaCha;
-    //        },
-    //    }
-    //
-    //    std.debug.print("{s} {s} {s}\n", .{ dh, cipher, hash });
+    return .{
+        .pattern = pattern,
+        .dh = dh,
+        .cipher = cipher,
+        .hash = hash,
+    };
 }
-
-const NameToProtocol = std.StaticStringMap(u32).initComptime(.{
-    "Noise_XX_25519_AESGCM_SHA256",
-    HandshakeState(Sha256, Aes256Gcm),
-});
 
 test "snow" {
     const snow_txt = try std.fs.cwd().openFile("./testdata/snow.txt", .{});
@@ -82,14 +86,11 @@ test "snow" {
 
     var i: usize = 0;
     for (data.value.vectors) |vector| {
-        var split_it = std.mem.splitScalar(u8, vector.protocol_name, '_');
-        _ = split_it.next().?;
-        _ = split_it.next().?;
-        _ = split_it.next().?;
-        const cipher_st = split_it.next().?;
+        const protocol = protocolFromName(vector.protocol_name);
+        std.debug.print("{s} {s} {s} {s}\n", .{ protocol.pattern, protocol.dh, protocol.cipher, protocol.hash });
 
-        var sender = CipherState.init(cipher_st, std.testing.allocator, [_]u8{1 + @as(u8, @intCast(i))} ** 32);
-        var receiver = CipherState.init(cipher_st, std.testing.allocator, [_]u8{1 + @as(u8, @intCast(i))} ** 32);
+        var sender = CipherState.init(protocol.cipher, std.testing.allocator, [_]u8{1 + @as(u8, @intCast(i))} ** 32);
+        var receiver = CipherState.init(protocol.cipher, std.testing.allocator, [_]u8{1 + @as(u8, @intCast(i))} ** 32);
 
         const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
         const ad = "Additional data";
