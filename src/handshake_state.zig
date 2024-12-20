@@ -58,7 +58,7 @@ const PreMessagePattern = enum {
 ///    N = No static key for responder
 ///    K = Static key for responder Known to initiator
 ///    X = Static key for responder Xmitted ("transmitted") to initiator
-const HandshakePatternName = enum {
+pub const HandshakePatternName = enum {
     N,
     K,
     X,
@@ -79,7 +79,7 @@ const HandshakePatternName = enum {
 
 const MessagePattern = []const MessageToken;
 
-const HandshakePattern = struct {
+pub const HandshakePattern = struct {
     pre_message_pattern_initiator: ?PreMessagePattern,
     pre_message_pattern_responder: ?PreMessagePattern,
     message_patterns: []MessagePattern,
@@ -191,7 +191,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
             };
         }
 
-        fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState, CipherState } {
+        pub fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState, CipherState } {
             if (self.message_patterns.items.len == 0) {
                 return try self.symmetric_state.split();
             }
@@ -232,7 +232,7 @@ pub fn HandshakeState(comptime H: type, comptime C: type) type {
             return null;
         }
 
-        fn readMessage(self: *Self, message: []const u8, payload_buf: *ArrayList(u8)) !?struct { CipherState, CipherState } {
+        pub fn readMessage(self: *Self, message: []const u8, payload_buf: *ArrayList(u8)) !?struct { CipherState, CipherState } {
             if (self.message_patterns.items.len == 0) {
                 return try self.symmetric_state.split();
             }

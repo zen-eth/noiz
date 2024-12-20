@@ -4,6 +4,8 @@ const ArrayList = std.ArrayList;
 
 const SymmetricState = @import("symmetric_state.zig").SymmetricState;
 const HandshakeState = @import("handshake_state.zig").HandshakeState;
+const HandshakePatternName = @import("handshake_state.zig").HandshakePatternName;
+const HandshakePattern = @import("handshake_state.zig").HandshakePattern;
 const CipherStateChaCha = @import("cipher.zig").CipherStateChaCha;
 
 const DH = @import("dh.zig").DH;
@@ -75,6 +77,7 @@ pub fn protocolFromName(protocol_name: []const u8) Protocol {
 }
 
 test "snow" {
+    const allocator = std.testing.allocator;
     const snow_txt = try std.fs.cwd().openFile("./testdata/snow.txt", .{});
     const buf: []u8 = try snow_txt.readToEndAlloc(std.testing.allocator, 1_000_000);
     defer std.testing.allocator.free(buf);
@@ -89,6 +92,28 @@ test "snow" {
         const protocol = protocolFromName(vector.protocol_name);
         std.debug.print("{s} {s} {s} {s}\n", .{ protocol.pattern, protocol.dh, protocol.cipher, protocol.hash });
 
+        const s = vector.init_static;
+        const e = vector.init_ephemeral;
+        const rs = vector.init_remote_static;
+        const re = vector.resp_ephemeral;
+
+        const initiator = HandshakeState(protocol.hash, protocol.cipher).init(
+            allocator,
+            std.meta.stringToEnum(HandshakePatternName, protocol.pattern),
+            HandshakePattern{
+                .pre_message_pattern_initiator = null,
+                .pre_message_pattern_responder = null,
+                .message_patterns = vector.messages,
+            },
+            true,
+            vector.init_prologue,
+            s,
+            e,
+            rs,
+            re,
+        );
+
+        std.debug.print("{any}", .{initiator});
         var sender = CipherState.init(protocol.cipher, std.testing.allocator, [_]u8{1 + @as(u8, @intCast(i))} ** 32);
         var receiver = CipherState.init(protocol.cipher, std.testing.allocator, [_]u8{1 + @as(u8, @intCast(i))} ** 32);
 
