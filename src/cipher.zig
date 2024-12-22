@@ -19,7 +19,7 @@ const CipherError = error{
 /// for `std.meta.stringToEnum` to work as intended.
 ///
 /// [protocol specification]: https://noiseprotocol.org/noise.html#protocol-names-and-modifiers
-const CipherChoice = enum {
+pub const CipherChoice = enum {
     ChaChaPoly,
     AESGCM,
 };

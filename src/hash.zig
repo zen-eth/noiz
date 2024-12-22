@@ -5,6 +5,18 @@ const Sha512 = std.crypto.hash.sha2.Sha512;
 const Blake2s256 = std.crypto.hash.blake2.Blake2s256;
 const Blake2b512 = std.crypto.hash.blake2.Blake2b512;
 
+pub const HashChoice = enum {
+    SHA256,
+    SHA512,
+    BLAKE2s,
+    BLAKE2b,
+};
+
+pub const HashSha256 = Hash(Sha256);
+pub const HashSha512 = Hash(Sha512);
+pub const HashBlake2s = Hash(Blake2s256);
+pub const HashBlake2b = Hash(Blake2b512);
+
 /// Instantiates a Noise hash function.
 ///
 /// Only these hash functions are supported in accordance with the spec: `Sha256`, `Sha512`, `Blake2s256`, `Blake2b512`.
@@ -30,7 +42,7 @@ pub fn Hash(comptime H: type) type {
 
         const Self = @This();
 
-        fn init() Self {
+        pub fn init() Self {
             return .{};
         }
 
