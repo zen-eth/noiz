@@ -3,14 +3,14 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
 const SymmetricState = @import("symmetric_state.zig").SymmetricState;
-const SymmetricState2 = @import("symmetric_state.zig").SymmetricState2;
 const protocolFromName = @import("symmetric_state.zig").protocolFromName;
 const HandshakeState = @import("handshake_state.zig").HandshakeState;
+const patternFromName = @import("handshake_pattern.zig").patternFromName;
 const MAX_MESSAGE_LEN = @import("handshake_state.zig").MAX_MESSAGE_LEN;
-const HandshakePatternName = @import("handshake_state.zig").HandshakePatternName;
-const HandshakePattern = @import("handshake_state.zig").HandshakePattern;
-const MessagePattern = @import("handshake_state.zig").MessagePattern;
-const MessageToken = @import("handshake_state.zig").MessageToken;
+const HandshakePatternName = @import("handshake_pattern.zig").HandshakePatternName;
+const HandshakePattern = @import("handshake_pattern.zig").HandshakePattern;
+const MessagePattern = @import("handshake_pattern.zig").MessagePattern;
+
 const CipherStateChaCha = @import("cipher.zig").CipherStateChaCha;
 
 const HashSha256 = @import("hash.zig").HashSha256;
@@ -28,11 +28,6 @@ const Aes256Gcm = std.crypto.aead.aes_gcm.Aes256Gcm;
 const Sha512 = std.crypto.hash.sha2.Sha512;
 const Blake2s256 = std.crypto.hash.blake2.Blake2s256;
 const Blake2b512 = std.crypto.hash.blake2.Blake2b512;
-
-const NOISE_ = "Noise_";
-const DH_Functions = [_][]const u8{"25519"};
-const Cipher_Functions = [_][]const u8{ "Aes256Gcm", "ChaCha20Poly1305" };
-const Hash_Functions = [_][]const u8{ "Sha256", "Sha512", "Blake2s256", "Blake2b512" };
 
 const CipherState = @import("./cipher.zig").CipherState;
 const CipherChoice = @import("./cipher.zig").CipherChoice;
@@ -64,7 +59,7 @@ const Vectors = struct {
 
 test "snow" {
     const allocator = std.testing.allocator;
-    const snow_txt = try std.fs.cwd().openFile("./testdata/snow.txt", .{});
+    const snow_txt = try std.fs.cwd().openFile("./testdata/snow2.txt", .{});
     const buf: []u8 = try snow_txt.readToEndAlloc(std.testing.allocator, 1_000_000);
     defer std.testing.allocator.free(buf);
 
@@ -73,15 +68,15 @@ test "snow" {
     const data = try std.json.parseFromSlice(Vectors, std.testing.allocator, buf[0..], .{});
     defer data.deinit();
 
-    var i: usize = 0;
     for (data.value.vectors) |vector| {
         const protocol = protocolFromName(vector.protocol_name);
-        std.debug.print("{s} {s} {any} {any}\n", .{ protocol.pattern, protocol.dh, protocol.cipher, protocol.hash });
+
+        if (std.mem.eql(u8, protocol.dh, "448")) continue;
 
         const init_s = blk: {
             if (vector.init_static) |s| {
                 var sk_s: [32]u8 = undefined;
-                @memcpy(&sk_s, s);
+                _ = try std.fmt.hexToBytes(&sk_s, s);
                 const pub_static = try std.crypto.dh.X25519.recoverPublicKey(sk_s);
 
                 break :blk DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
@@ -92,7 +87,7 @@ test "snow" {
         };
 
         var init_sk_e: [32]u8 = undefined;
-        @memcpy(&init_sk_e, vector.init_ephemeral[0..32]);
+        _ = try std.fmt.hexToBytes(&init_sk_e, vector.init_ephemeral);
         const init_pub_ephemeral = try std.crypto.dh.X25519.recoverPublicKey(init_sk_e);
 
         const init_e = DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
@@ -100,38 +95,32 @@ test "snow" {
             .secret_key = init_sk_e,
         } };
 
-        var init_rs: [32]u8 = undefined;
-        @memcpy(&init_rs, vector.init_remote_static.?[0..32]);
+        var init_sk_rs: [32]u8 = undefined;
+        _ = try std.fmt.hexToBytes(&init_sk_rs, vector.init_remote_static.?);
 
-        var init_re: [32]u8 = undefined;
-        @memcpy(&init_re, vector.resp_ephemeral[0..32]);
-        // const initiator = SymmetricState2.init(allocator, vector.protocol_name);
-        const pattern = &[_]MessageToken{.e};
-        var msg_patterns = [_]MessagePattern{pattern};
+        var prologue: [100]u8 = undefined;
+        const decoded = try std.fmt.hexToBytes(&prologue, vector.init_prologue);
 
         var initiator = try HandshakeState.init(
             vector.protocol_name,
             allocator,
             std.meta.stringToEnum(HandshakePatternName, protocol.pattern).?,
-            HandshakePattern{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &msg_patterns,
-            },
+            try patternFromName(std.testing.allocator, protocol.pattern),
             true,
-            vector.init_prologue,
+            decoded,
             .{
                 .s = init_s,
                 .e = init_e,
-                .rs = init_rs,
-                .re = init_re,
+                .rs = init_sk_rs,
+                .re = null,
             },
         );
+        defer initiator.deinit();
 
         const resp_s = blk: {
             if (vector.resp_static) |s| {
                 var sk_s: [32]u8 = undefined;
-                @memcpy(&sk_s, s[0..32]);
+                _ = try std.fmt.hexToBytes(&sk_s, s);
                 const pub_static = try std.crypto.dh.X25519.recoverPublicKey(sk_s);
 
                 break :blk DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
@@ -142,55 +131,53 @@ test "snow" {
         };
 
         var resp_sk_e: [32]u8 = undefined;
-        @memcpy(&resp_sk_e, vector.resp_ephemeral[0..32]);
+        _ = try std.fmt.hexToBytes(&resp_sk_e, vector.resp_ephemeral);
         const resp_pub_ephemeral = try std.crypto.dh.X25519.recoverPublicKey(resp_sk_e);
-
         const resp_e = DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
             .public_key = resp_pub_ephemeral,
             .secret_key = resp_sk_e,
         } };
 
-        var resp_rs: [32]u8 = undefined;
-        @memcpy(&resp_rs, vector.init_remote_static.?[0..32]);
+        var resp_rs_sk: [32]u8 = undefined;
+        if (vector.resp_remote_static) |rs| {
+            _ = try std.fmt.hexToBytes(&resp_rs_sk, rs);
+        }
+        const resp_rs = try std.crypto.dh.X25519.recoverPublicKey(resp_rs_sk);
 
-        var resp_re: [32]u8 = undefined;
-        @memcpy(&resp_re, vector.resp_ephemeral[0..32]);
-
-        std.debug.print("{any}", .{initiator});
-        const responder = try HandshakeState.init(
+        var responder = try HandshakeState.init(
             vector.protocol_name,
             allocator,
             std.meta.stringToEnum(HandshakePatternName, protocol.pattern).?,
-            HandshakePattern{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &msg_patterns,
-            },
-            true,
-            vector.init_prologue,
+            try patternFromName(std.testing.allocator, protocol.pattern),
+            false,
+            vector.resp_prologue,
             .{
                 .s = resp_s,
                 .e = resp_e,
                 .rs = resp_rs,
-                .re = resp_re,
+                .re = null,
             },
         );
-        std.debug.print("{any}", .{responder});
+        defer responder.deinit();
 
         var send_buf = try ArrayList(u8).initCapacity(std.testing.allocator, MAX_MESSAGE_LEN);
-        defer send_buf.deinit();
         // var recv_buf: [MAX_MESSAGE_LEN]u8 = undefined;
 
-        for (vector.messages) |m| {
-            _ = try initiator.writeMessage(m.payload, &send_buf);
+        for (vector.messages, 0..) |m, i| {
+            var sender = if (i % 2 == 0) initiator else responder;
+            const receiver = if (i % 2 == 0) responder else initiator;
+            _ = receiver;
 
-            std.debug.print("\nplaintext: {s}\n", .{std.fmt.fmtSliceHexLower(m.payload)});
-            std.debug.print("actual: {s}\n", .{std.fmt.fmtSliceHexLower(send_buf.items[0..send_buf.items.len])});
-            // std.debug.print("\nactual: {x}\n", .{std.fmt.bytesToHex(send_buf.items, .lower)});
-            std.debug.print("expected: {x}\n", .{std.fmt.fmtSliceHexLower(m.ciphertext)});
+            var payload_buf = [_]u8{0} ** MAX_MESSAGE_LEN;
+            const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
+            _ = try sender.writeMessage(payload, &send_buf);
+
+            var expected_buf: [200]u8 = undefined;
+            const expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
+            try std.testing.expectEqualSlices(u8, expected, send_buf.items);
         }
 
-        i += 1;
-        if (i == 1) break;
+        send_buf.clearAndFree();
+        break;
     }
 }

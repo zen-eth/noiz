@@ -38,16 +38,30 @@ pub const CipherState = union(enum) {
     }
 
     pub fn encryptWithAd(self: *CipherState, ad: []const u8, plaintext: []const u8) ![]const u8 {
-        switch (self.*) {
-            .chacha => return self.chacha.encryptWithAd(ad, plaintext),
-            .aesgcm => return self.aesgcm.encryptWithAd(ad, plaintext),
-        }
+        return switch (self.*) {
+            .chacha => self.chacha.encryptWithAd(ad, plaintext),
+            .aesgcm => self.aesgcm.encryptWithAd(ad, plaintext),
+        };
     }
 
-    pub fn decryptWithAd(self: *CipherState, ad: []const u8, ciphertext: []const u8) ![]const u8 {
+    pub fn decryptWithAd(self: *CipherState, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
         switch (self.*) {
             .chacha => return self.chacha.decryptWithAd(ad, ciphertext),
             .aesgcm => return self.aesgcm.decryptWithAd(ad, ciphertext),
+        }
+    }
+
+    pub fn deinit(self: *CipherState) void {
+        switch (self.*) {
+            .chacha => return self.chacha.deinit(),
+            .aesgcm => return self.aesgcm.deinit(),
+        }
+    }
+    /// Returns true if `k` is non-empty, false otherwise.
+    pub fn hasKey(self: *CipherState) bool {
+        switch (self.*) {
+            .chacha => return self.chacha.hasKey(),
+            .aesgcm => return self.aesgcm.hasKey(),
         }
     }
 };
@@ -115,6 +129,10 @@ fn CipherState_(comptime C: type) type {
         pub fn rekey(self: *Self) !void {
             self.k = try Cipher_.rekey(self.allocator, self.k);
         }
+
+        pub fn deinit(self: *Self) void {
+            _ = self;
+        }
     };
 }
 
@@ -145,14 +163,19 @@ fn Cipher(comptime C: type) type {
             n: u64,
             ad: []const u8,
             plaintext: []const u8,
-        ) ![]const u8 {
+        ) ![]u8 {
             var tag: [tag_length]u8 = undefined;
             const ciphertext = try allocator.alloc(u8, plaintext.len + tag_length);
             errdefer allocator.free(ciphertext);
             var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
             const n_bytes: [8]u8 = @bitCast(n);
 
-            @memcpy(nonce[nonce_length - @sizeOf(u64) .. nonce_length], &n_bytes);
+            for (nonce[nonce_length - @sizeOf(@TypeOf(n)) .. nonce_length], 0..) |*dst, i| {
+                dst.* = if (C == ChaCha20Poly1305)
+                    n_bytes[n_bytes.len - i - 1]
+                else
+                    n_bytes[i];
+            }
             Cipher_.encrypt(ciphertext[0..plaintext.len], tag[0..], plaintext, ad, nonce, k);
 
             @memcpy(ciphertext[plaintext.len .. plaintext.len + tag_length], &tag);
@@ -175,15 +198,17 @@ fn Cipher(comptime C: type) type {
             var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
 
             var n_bytes: [8]u8 = @bitCast(n);
-
             // If `Aes256Gcm` is used, we use big-endian encoding of n.
             if (Cipher_ == Aes256Gcm) {
                 std.mem.reverse(u8, &n_bytes);
             }
+            for (nonce[nonce_length - @sizeOf(@TypeOf(n)) .. nonce_length], 0..) |*dst, i| {
+                dst.* = n_bytes[n_bytes.len - i - 1];
+            }
 
-            @memcpy(nonce[nonce_length - @sizeOf(u64) .. nonce_length], &n_bytes);
             var tag: [tag_length]u8 = [_]u8{0} ** tag_length;
-            @memcpy(&tag, ciphertext[plaintext.len..]);
+            @memcpy(&tag, ciphertext[ciphertext.len - tag_length .. ciphertext.len]);
+            std.debug.assert(tag.len == tag_length);
             try Cipher_.decrypt(plaintext, ciphertext[0..plaintext.len], tag, ad, nonce, k);
 
             return plaintext;

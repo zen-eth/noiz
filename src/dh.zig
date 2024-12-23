@@ -35,7 +35,9 @@ pub fn DH() type {
         ///
         /// Returns the `Keypair`.
         pub fn generateKeypair(seed: ?[32]u8) !KeyPair {
-            return .{ .inner = if (seed) |s| try X25519.KeyPair.generateDeterministic(s) else X25519.KeyPair.generate() };
+            return .{
+                .inner = if (seed) |s| try X25519.KeyPair.generateDeterministic(s) else X25519.KeyPair.generate(),
+            };
         }
     };
 }
