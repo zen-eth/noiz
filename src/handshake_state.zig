@@ -24,6 +24,11 @@ const CipherState = @import("./cipher.zig").CipherState;
 const Cipher = @import("./cipher.zig").Cipher;
 const Hash = @import("hash.zig").Hash;
 
+///The max message length in bytes.
+///
+///See: http://www.noiseprotocol.org/noise.html#message-format
+pub const MAX_MESSAGE_LEN = 65535;
+
 pub fn noiseProtocolName() []const u8 {
     return "Noise_";
 }
@@ -136,16 +141,16 @@ pub const HandshakeState = struct {
 
     allocator: Allocator,
     /// The local static key pair
-    s: ?dh.KeyPair,
+    s: ?dh.KeyPair = null,
 
     /// The local ephemeral key pair
-    e: ?dh.KeyPair,
+    e: ?dh.KeyPair = null,
 
     /// rs: The remote party's static public key
-    rs: ?[dh.KeyPair.public_length]u8,
+    rs: ?[dh.KeyPair.public_length]u8 = null,
 
     /// re: The remote party's ephemeral public key
-    re: ?[dh.KeyPair.public_length]u8,
+    re: ?[dh.KeyPair.public_length]u8 = null,
 
     /// A party can either be the initiator or the responder.
     /// This is true if `Self` is the intiator.
@@ -158,6 +163,20 @@ pub const HandshakeState = struct {
     /// A handshake pattern name section contains a handshake pattern name plus a sequence of zero or more pattern modifiers.
     pub const HandshakePatternNameSection: []const u8 = [_][]const u8{};
 
+    const Keys = struct {
+        /// The local static key pair
+        s: ?dh.KeyPair = null,
+
+        /// The local ephemeral key pair
+        e: ?dh.KeyPair = null,
+
+        /// rs: The remote party's static public key
+        rs: ?[dh.KeyPair.public_length]u8 = null,
+
+        /// re: The remote party's ephemeral public key
+        re: ?[dh.KeyPair.public_length]u8 = null,
+    };
+
     /// Initialize(handshake_pattern, initiator, prologue, s, e, rs, re):
     pub fn init(
         protocol_name: []const u8,
@@ -167,10 +186,7 @@ pub const HandshakeState = struct {
         handshake_pattern: HandshakePattern,
         is_initiator: bool,
         prologue: []const u8,
-        s: ?dh.KeyPair,
-        e: ?dh.KeyPair,
-        rs: ?[dh.KeyPair.public_length]u8,
-        re: ?[dh.KeyPair.public_length]u8,
+        keys: Keys,
     ) !Self {
         _ = handshake_pattern_name;
         var sym = try SymmetricState2.init(allocator, protocol_name);
@@ -184,10 +200,10 @@ pub const HandshakeState = struct {
             .message_patterns = ArrayList(MessagePattern).fromOwnedSlice(allocator, handshake_pattern.message_patterns[0..]),
             .allocator = allocator,
             .symmetric_state = sym,
-            .s = s,
-            .e = e,
-            .rs = rs,
-            .re = re,
+            .s = keys.s,
+            .e = keys.e,
+            .rs = keys.rs,
+            .re = keys.re,
             .is_initiator = is_initiator,
         };
     }
@@ -304,10 +320,10 @@ test "writeMessage - simple" {
         },
         true,
         "",
-        alice_static,
-        null,
-        bob_static.inner.public_key,
-        null,
+        .{
+            .s = alice_static,
+            .rs = bob_static.inner.public_key,
+        },
     );
     defer alice_handshake.deinit();
 
@@ -336,10 +352,10 @@ test "empty patterns" {
         },
         true,
         "",
-        alice_static,
-        null,
-        bob_static.inner.public_key,
-        null,
+        .{
+            .s = alice_static,
+            .rs = bob_static.inner.public_key,
+        },
     );
     var buf = ArrayList(u8).init(std.testing.allocator);
     try buf.appendSlice("hello ");

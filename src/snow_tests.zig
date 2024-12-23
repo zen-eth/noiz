@@ -6,6 +6,7 @@ const SymmetricState = @import("symmetric_state.zig").SymmetricState;
 const SymmetricState2 = @import("symmetric_state.zig").SymmetricState2;
 const protocolFromName = @import("symmetric_state.zig").protocolFromName;
 const HandshakeState = @import("handshake_state.zig").HandshakeState;
+const MAX_MESSAGE_LEN = @import("handshake_state.zig").MAX_MESSAGE_LEN;
 const HandshakePatternName = @import("handshake_state.zig").HandshakePatternName;
 const HandshakePattern = @import("handshake_state.zig").HandshakePattern;
 const MessagePattern = @import("handshake_state.zig").MessagePattern;
@@ -77,10 +78,10 @@ test "snow" {
         const protocol = protocolFromName(vector.protocol_name);
         std.debug.print("{s} {s} {any} {any}\n", .{ protocol.pattern, protocol.dh, protocol.cipher, protocol.hash });
 
-        const s = blk: {
-            if (vector.init_static) |init_s| {
+        const init_s = blk: {
+            if (vector.init_static) |s| {
                 var sk_s: [32]u8 = undefined;
-                @memcpy(&sk_s, init_s);
+                @memcpy(&sk_s, s);
                 const pub_static = try std.crypto.dh.X25519.recoverPublicKey(sk_s);
 
                 break :blk DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
@@ -90,26 +91,25 @@ test "snow" {
             } else break :blk null;
         };
 
-        var sk_e: [32]u8 = undefined;
-        @memcpy(&sk_e, vector.init_ephemeral[0..32]);
-        const pub_ephemeral = try std.crypto.dh.X25519.recoverPublicKey(sk_e);
+        var init_sk_e: [32]u8 = undefined;
+        @memcpy(&init_sk_e, vector.init_ephemeral[0..32]);
+        const init_pub_ephemeral = try std.crypto.dh.X25519.recoverPublicKey(init_sk_e);
 
-        const e = DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
-            .public_key = pub_ephemeral,
-            .secret_key = sk_e,
+        const init_e = DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
+            .public_key = init_pub_ephemeral,
+            .secret_key = init_sk_e,
         } };
 
-        var rs: [32]u8 = undefined;
-        @memcpy(&rs, vector.init_remote_static.?[0..32]);
+        var init_rs: [32]u8 = undefined;
+        @memcpy(&init_rs, vector.init_remote_static.?[0..32]);
 
-        var re: [32]u8 = undefined;
-        @memcpy(&re, vector.resp_ephemeral[0..32]);
+        var init_re: [32]u8 = undefined;
+        @memcpy(&init_re, vector.resp_ephemeral[0..32]);
         // const initiator = SymmetricState2.init(allocator, vector.protocol_name);
         const pattern = &[_]MessageToken{.e};
         var msg_patterns = [_]MessagePattern{pattern};
 
-        std.debug.print("vec: {s}\n", .{vector.protocol_name});
-        const initiator = HandshakeState.init(
+        var initiator = try HandshakeState.init(
             vector.protocol_name,
             allocator,
             std.meta.stringToEnum(HandshakePatternName, protocol.pattern).?,
@@ -120,15 +120,77 @@ test "snow" {
             },
             true,
             vector.init_prologue,
-            s,
-            e,
-            rs,
-            re,
+            .{
+                .s = init_s,
+                .e = init_e,
+                .rs = init_rs,
+                .re = init_re,
+            },
         );
 
-        std.debug.print("{any}", .{initiator});
-        i += 1;
+        const resp_s = blk: {
+            if (vector.resp_static) |s| {
+                var sk_s: [32]u8 = undefined;
+                @memcpy(&sk_s, s[0..32]);
+                const pub_static = try std.crypto.dh.X25519.recoverPublicKey(sk_s);
 
-        if (i == 5) break;
+                break :blk DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
+                    .public_key = pub_static,
+                    .secret_key = sk_s,
+                } };
+            } else break :blk null;
+        };
+
+        var resp_sk_e: [32]u8 = undefined;
+        @memcpy(&resp_sk_e, vector.resp_ephemeral[0..32]);
+        const resp_pub_ephemeral = try std.crypto.dh.X25519.recoverPublicKey(resp_sk_e);
+
+        const resp_e = DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
+            .public_key = resp_pub_ephemeral,
+            .secret_key = resp_sk_e,
+        } };
+
+        var resp_rs: [32]u8 = undefined;
+        @memcpy(&resp_rs, vector.init_remote_static.?[0..32]);
+
+        var resp_re: [32]u8 = undefined;
+        @memcpy(&resp_re, vector.resp_ephemeral[0..32]);
+
+        std.debug.print("{any}", .{initiator});
+        const responder = try HandshakeState.init(
+            vector.protocol_name,
+            allocator,
+            std.meta.stringToEnum(HandshakePatternName, protocol.pattern).?,
+            HandshakePattern{
+                .pre_message_pattern_initiator = null,
+                .pre_message_pattern_responder = null,
+                .message_patterns = &msg_patterns,
+            },
+            true,
+            vector.init_prologue,
+            .{
+                .s = resp_s,
+                .e = resp_e,
+                .rs = resp_rs,
+                .re = resp_re,
+            },
+        );
+        std.debug.print("{any}", .{responder});
+
+        var send_buf = try ArrayList(u8).initCapacity(std.testing.allocator, MAX_MESSAGE_LEN);
+        defer send_buf.deinit();
+        // var recv_buf: [MAX_MESSAGE_LEN]u8 = undefined;
+
+        for (vector.messages) |m| {
+            _ = try initiator.writeMessage(m.payload, &send_buf);
+
+            std.debug.print("\nplaintext: {s}\n", .{std.fmt.fmtSliceHexLower(m.payload)});
+            std.debug.print("actual: {s}\n", .{std.fmt.fmtSliceHexLower(send_buf.items[0..send_buf.items.len])});
+            // std.debug.print("\nactual: {x}\n", .{std.fmt.bytesToHex(send_buf.items, .lower)});
+            std.debug.print("expected: {x}\n", .{std.fmt.fmtSliceHexLower(m.ciphertext)});
+        }
+
+        i += 1;
+        if (i == 1) break;
     }
 }
