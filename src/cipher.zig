@@ -83,23 +83,23 @@ fn CipherState_(comptime C: type) type {
         n: u64,
 
         /// Sets `k` = `key` and `n` = 0.
-        pub fn init(allocator: Allocator, key: [32]u8) Self {
+        fn init(allocator: Allocator, key: [32]u8) Self {
             return .{ .allocator = allocator, .k = key, .n = 0 };
         }
 
         /// Returns true if `k` is non-empty, false otherwise.
-        pub fn hasKey(self: *Self) bool {
+        fn hasKey(self: *Self) bool {
             return !std.mem.eql(u8, &self.k, &[_]u8{0} ** 32);
         }
 
         /// Sets `n` = `nonce`. This i used for handling out-of-order transport messages.
         /// See: https://noiseprotocol.org/noise.html#out-of-order-transport-messages
-        pub fn setNonce(self: *Self, nonce: u64) void {
+        fn setNonce(self: *Self, nonce: u64) void {
             self.n = nonce;
         }
 
         /// If `k` is non-empty returns `Cipher_.encrypt(k, n++, ad, plaintext). Otherwise return plaintext.
-        pub fn encryptWithAd(self: *Self, ad: []const u8, plaintext: []const u8) CipherError![]const u8 {
+        fn encryptWithAd(self: *Self, ad: []const u8, plaintext: []const u8) CipherError![]const u8 {
             if (!self.hasKey()) return plaintext;
             if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
