@@ -157,8 +157,8 @@ pub const HandshakeState = struct {
 
         const message_patterns = ArrayList(MessagePattern).fromOwnedSlice(allocator, handshake_pattern.message_patterns);
         return .{
-            .message_patterns = message_patterns,
             .allocator = allocator,
+            .message_patterns = message_patterns,
             .symmetric_state = sym,
             .s = keys.s,
             .e = keys.e,
@@ -173,6 +173,7 @@ pub const HandshakeState = struct {
             for (m) |token| {
                 switch (token) {
                     .e => {
+                        //TODO: fix
                         //std.debug.assert(self.e == null);
                         //const keypair = try dh.generateKeypair(null);
                         //self.e = keypair;

@@ -60,12 +60,12 @@ const Vectors = struct {
 test "snow" {
     const allocator = std.testing.allocator;
     const snow_txt = try std.fs.cwd().openFile("./testdata/snow2.txt", .{});
-    const buf: []u8 = try snow_txt.readToEndAlloc(std.testing.allocator, 1_000_000);
+    const buf: []u8 = try snow_txt.readToEndAlloc(allocator, 1_000_000);
     defer std.testing.allocator.free(buf);
 
     // Validate snow.txt is loaded correctly
-    try std.testing.expect(try std.json.validate(std.testing.allocator, buf));
-    const data = try std.json.parseFromSlice(Vectors, std.testing.allocator, buf[0..], .{});
+    try std.testing.expect(try std.json.validate(allocator, buf));
+    const data = try std.json.parseFromSlice(Vectors, allocator, buf[0..], .{});
     defer data.deinit();
 
     for (data.value.vectors) |vector| {
@@ -105,7 +105,7 @@ test "snow" {
             vector.protocol_name,
             allocator,
             std.meta.stringToEnum(HandshakePatternName, protocol.pattern).?,
-            try patternFromName(std.testing.allocator, protocol.pattern),
+            try patternFromName(allocator, protocol.pattern),
             true,
             decoded,
             .{
@@ -148,7 +148,7 @@ test "snow" {
             vector.protocol_name,
             allocator,
             std.meta.stringToEnum(HandshakePatternName, protocol.pattern).?,
-            try patternFromName(std.testing.allocator, protocol.pattern),
+            try patternFromName(allocator, protocol.pattern),
             false,
             vector.resp_prologue,
             .{
@@ -160,7 +160,7 @@ test "snow" {
         );
         defer responder.deinit();
 
-        var send_buf = try ArrayList(u8).initCapacity(std.testing.allocator, MAX_MESSAGE_LEN);
+        var send_buf = try ArrayList(u8).initCapacity(allocator, MAX_MESSAGE_LEN);
         defer send_buf.deinit();
         // var recv_buf: [MAX_MESSAGE_LEN]u8 = undefined;
 

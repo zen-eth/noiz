@@ -12,7 +12,7 @@ pub const MessageToken = enum {
     psk,
 };
 
-pub const MessagePattern = []MessageToken;
+pub const MessagePattern = []const MessageToken;
 
 const PreMessagePattern = enum {
     e,
@@ -80,13 +80,9 @@ pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !Hands
     const hs_pattern_name_en = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name).?;
     switch (hs_pattern_name_en) {
         .N => {
-            const tokens: []MessageToken = try allocator.alloc(MessageToken, 2);
-            errdefer allocator.free(tokens);
             var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 1);
             errdefer allocator.free(patterns);
-
-            std.mem.copyForwards(MessageToken, tokens, &[_]MessageToken{ .e, .es });
-            @memset(patterns[0..1], tokens);
+            patterns[0] = &[_]MessageToken{ .e, .es };
 
             return .{
                 .pre_message_pattern_initiator = null,
@@ -95,18 +91,11 @@ pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !Hands
             };
         },
         .NN => {
-            const tokens: []MessageToken = try allocator.alloc(MessageToken, 2);
-            errdefer allocator.free(tokens);
             var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 2);
             errdefer allocator.free(patterns);
 
-            std.mem.copyForwards(MessageToken, tokens, &[_]MessageToken{
-                .e,
-            });
-            @memset(patterns[0..1], tokens);
-            const tokens2: []MessageToken = try allocator.alloc(MessageToken, 2);
-            std.mem.copyForwards(MessageToken, tokens2, &[_]MessageToken{ .e, .ee });
-            @memset(patterns[1..2], tokens2);
+            patterns[0] = &[_]MessageToken{.e};
+            patterns[1] = &[_]MessageToken{ .e, .ee };
 
             return .{
                 .pre_message_pattern_initiator = null,
