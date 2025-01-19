@@ -154,7 +154,7 @@ pub const SymmetricState = struct {
         const cipher_choice_st = split_it.next().?;
         std.mem.copyForwards(u8, &cipher_choice, cipher_choice_st);
 
-        const cipher_state = CipherState.init(&cipher_choice, allocator, [_]u8{0} ** 32);
+        const cipher_state = CipherState.init(&cipher_choice, [_]u8{0} ** 32);
         try ck.appendSlice(h.constSlice());
 
         return .{
@@ -180,7 +180,7 @@ pub const SymmetricState = struct {
         var temp_k: [32]u8 = undefined;
         @memcpy(&temp_k, output[1].slice()[0..32]);
         self.cipher_state.deinit();
-        self.cipher_state = CipherState.init(&self.cipher_choice, self.allocator, temp_k);
+        self.cipher_state = CipherState.init(&self.cipher_choice, temp_k);
     }
 
     pub fn mixHash(self: *Self, data: []const u8) !void {
@@ -201,16 +201,18 @@ pub const SymmetricState = struct {
         self.cipher_state.init(temp_k);
     }
 
-    pub fn encryptAndHash(self: *Self, plaintext: []const u8) ![]const u8 {
+    pub fn encryptAndHash(self: *Self, plaintext: []const u8) ![]u8 {
         //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
-        const ciphertext = try self.cipher_state.encryptWithAd(self.h.constSlice(), plaintext);
+        var ciphertext = try self.allocator.alloc(u8, plaintext.len + self.cipher_state.tagLength());
+        _ = try self.cipher_state.encryptWithAd(ciphertext[0..], self.h.constSlice(), plaintext);
         try self.mixHash(ciphertext);
         return ciphertext;
     }
 
     pub fn decryptAndHash(self: *Self, ciphertext: []const u8) ![]const u8 {
         //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
-        const plaintext = try self.cipher_state.decryptWithAd(self.h.constSlice(), ciphertext);
+        var plaintext = try self.allocator.alloc(u8, ciphertext.len - self.cipher_state.tagLength());
+        try self.cipher_state.decryptWithAd(&plaintext, self.h.constSlice(), ciphertext);
         try self.mixHash(ciphertext);
 
         return plaintext;
@@ -232,8 +234,8 @@ pub const SymmetricState = struct {
         if (self.hasher.len == 64) @memcpy(&temp_k1, output[0].slice()[0..32]) else @memcpy(&temp_k1, output[0].slice());
         if (self.hasher.len == 64) @memcpy(&temp_k2, output[1].slice()[0..32]) else @memcpy(&temp_k2, output[1].slice());
 
-        const c1 = CipherState.init(&self.cipher_choice, self.allocator, temp_k1);
-        const c2 = CipherState.init(&self.cipher_choice, self.allocator, temp_k2);
+        const c1 = CipherState.init(&self.cipher_choice, temp_k1);
+        const c2 = CipherState.init(&self.cipher_choice, temp_k2);
 
         return .{ c1, c2 };
     }

@@ -28,26 +28,26 @@ pub const CipherState = union(enum) {
     chacha: CipherState_(ChaCha20Poly1305),
     aesgcm: CipherState_(Aes256Gcm),
 
-    pub fn init(cipher_st: []const u8, allocator: Allocator, key: [32]u8) CipherState {
+    pub fn init(cipher_st: []const u8, key: [32]u8) CipherState {
         const len = std.mem.sliceTo(cipher_st, 0).len;
         const cipher_choice = std.meta.stringToEnum(CipherChoice, cipher_st[0..len]);
         return switch (cipher_choice.?) {
-            .ChaChaPoly => CipherState{ .chacha = CipherState_(ChaCha20Poly1305).init(allocator, key) },
-            .AESGCM => CipherState{ .aesgcm = CipherState_(Aes256Gcm).init(allocator, key) },
+            .ChaChaPoly => CipherState{ .chacha = CipherState_(ChaCha20Poly1305).init(key) },
+            .AESGCM => CipherState{ .aesgcm = CipherState_(Aes256Gcm).init(key) },
         };
     }
 
-    pub fn encryptWithAd(self: *CipherState, ad: []const u8, plaintext: []const u8) ![]const u8 {
+    pub fn encryptWithAd(self: *CipherState, ciphertext: []u8, ad: []const u8, plaintext: []const u8) ![]const u8 {
         return switch (self.*) {
-            .chacha => self.chacha.encryptWithAd(ad, plaintext),
-            .aesgcm => self.aesgcm.encryptWithAd(ad, plaintext),
+            .chacha => self.chacha.encryptWithAd(ciphertext, ad, plaintext),
+            .aesgcm => self.aesgcm.encryptWithAd(ciphertext, ad, plaintext),
         };
     }
 
-    pub fn decryptWithAd(self: *CipherState, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
+    pub fn decryptWithAd(self: *CipherState, plaintext: []u8, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
         switch (self.*) {
-            .chacha => return self.chacha.decryptWithAd(ad, ciphertext),
-            .aesgcm => return self.aesgcm.decryptWithAd(ad, ciphertext),
+            .chacha => return self.chacha.decryptWithAd(plaintext, ad, ciphertext),
+            .aesgcm => return self.aesgcm.decryptWithAd(plaintext, ad, ciphertext),
         }
     }
 
@@ -64,6 +64,13 @@ pub const CipherState = union(enum) {
             .aesgcm => return self.aesgcm.hasKey(),
         }
     }
+
+    pub fn tagLength(self: *CipherState) usize {
+        switch (self.*) {
+            .chacha => return self.chacha.tagLength(),
+            .aesgcm => return self.aesgcm.tagLength(),
+        }
+    }
 };
 
 /// spec: https://noiseprotocol.org/noise.html#the-cipherstate-object
@@ -73,7 +80,6 @@ fn CipherState_(comptime C: type) type {
     return struct {
         const Self = @This();
 
-        allocator: Allocator,
         /// A cipher key of 32 bytes (which may be empty).
         ///
         /// Empty is a special value which indicates `k` has not yet been initialized.
@@ -83,8 +89,8 @@ fn CipherState_(comptime C: type) type {
         n: u64,
 
         /// Sets `k` = `key` and `n` = 0.
-        fn init(allocator: Allocator, key: [32]u8) Self {
-            return .{ .allocator = allocator, .k = key, .n = 0 };
+        fn init(key: [32]u8) Self {
+            return .{ .k = key, .n = 0 };
         }
 
         /// Returns true if `k` is non-empty, false otherwise.
@@ -99,11 +105,11 @@ fn CipherState_(comptime C: type) type {
         }
 
         /// If `k` is non-empty returns `Cipher_.encrypt(k, n++, ad, plaintext). Otherwise return plaintext.
-        fn encryptWithAd(self: *Self, ad: []const u8, plaintext: []const u8) CipherError![]const u8 {
+        fn encryptWithAd(self: *Self, ciphertext: []u8, ad: []const u8, plaintext: []const u8) CipherError![]const u8 {
             if (!self.hasKey()) return plaintext;
             if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
-            const ciphertext = Cipher_.encrypt(self.allocator, self.k, self.n, ad, plaintext) catch |err| {
+            _ = Cipher_.encrypt(ciphertext, self.k, self.n, ad, plaintext) catch |err| {
                 // Nonce is still incremented if encryption fails.
                 // Reusing a nonce value for n with the same key k for encryption would be catastrophic.
                 // Nonces are not allowed to wrap back to zero due to integer overflow, and the maximum nonce value is reserved.
@@ -115,19 +121,22 @@ fn CipherState_(comptime C: type) type {
             return ciphertext;
         }
 
-        pub fn decryptWithAd(self: *Self, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
+        pub fn decryptWithAd(self: *Self, plaintext: []u8, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
             if (!self.hasKey()) return ciphertext;
             if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
             // Nonce is NOT incremented if decryption fails.
-            const plaintext = try Cipher_.decrypt(self.allocator, self.k, self.n, ad, ciphertext);
+            _ = try Cipher_.decrypt(plaintext, self.k, self.n, ad, ciphertext);
             self.n += 1;
 
             return plaintext;
         }
 
         pub fn rekey(self: *Self) !void {
-            self.k = try Cipher_.rekey(self.allocator, self.k);
+            self.k = try Cipher_.rekey(self.k);
+        }
+        fn tagLength(_: *Self) usize {
+            return Cipher_.tag_length;
         }
 
         pub fn deinit(self: *Self) void {
@@ -158,15 +167,14 @@ fn Cipher(comptime C: type) type {
         ///
         /// Returns the ciphertext that is the same length as the plaintext with the 16-byte authentication tag appended.
         fn encrypt(
-            allocator: Allocator,
+            ciphertext: []u8,
             k: [key_length]u8,
             n: u64,
             ad: []const u8,
             plaintext: []const u8,
         ) ![]u8 {
+            std.debug.assert(ciphertext.len == plaintext.len + tag_length);
             var tag: [tag_length]u8 = undefined;
-            const ciphertext = try allocator.alloc(u8, plaintext.len + tag_length);
-            errdefer allocator.free(ciphertext);
             var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
             const n_bytes: [8]u8 = @bitCast(n);
 
@@ -186,14 +194,13 @@ fn Cipher(comptime C: type) type {
         ///
         /// Returns the plaintext, unless authentication fails, in which case an error is signaled to the caller.
         fn decrypt(
-            allocator: Allocator,
+            plaintext: []u8,
             k: [key_length]u8,
             n: u64,
             ad: []const u8,
             ciphertext: []const u8,
         ) ![]const u8 {
-            const plaintext = try allocator.alloc(u8, ciphertext.len - tag_length);
-            errdefer allocator.free(plaintext);
+            std.debug.assert(plaintext.len == ciphertext.len - tag_length);
 
             var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
 
@@ -214,10 +221,10 @@ fn Cipher(comptime C: type) type {
             return plaintext;
         }
 
-        fn rekey(allocator: Allocator, k: [key_length]u8) ![32]u8 {
+        fn rekey(k: [key_length]u8) ![32]u8 {
             var plaintext: [32]u8 = undefined;
-            const enc = try encrypt(allocator, k, std.math.maxInt(u64), &[_]u8{}, &[_]u8{0} ** 32);
-            defer allocator.free(enc);
+            var ciphertext: [48]u8 = undefined;
+            const enc = try encrypt(&ciphertext, k, std.math.maxInt(u64), &[_]u8{}, &[_]u8{0} ** 32);
             @memcpy(&plaintext, enc[0..32]);
             return plaintext;
         }
@@ -228,14 +235,17 @@ fn testCipher(comptime C: type) !void {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{69} ** 32;
-    var sender = CipherState_(C).init(allocator, key);
-    var receiver = CipherState_(C).init(allocator, key);
+    var sender = CipherState_(C).init(key);
+    var receiver = CipherState_(C).init(key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
-    const ciphertext = try sender.encryptWithAd(ad, m);
+    var ciphertext = try allocator.alloc(u8, m.len + 16);
+    _ = try sender.encryptWithAd(ciphertext, ad, m);
     defer allocator.free(ciphertext[0..]);
-    const plaintext = try receiver.decryptWithAd(ad[0..], ciphertext);
+
+    var plaintext = try allocator.alloc(u8, m.len);
+    _ = try receiver.decryptWithAd(plaintext, ad[0..], ciphertext);
     defer allocator.free(plaintext[0..]);
 
     try testing.expectEqualSlices(u8, plaintext[0..], m);
@@ -247,25 +257,23 @@ test "cipherstate consistency" {
 }
 
 test "failed encryption returns plaintext" {
-    const allocator = std.testing.allocator;
-
     const key = [_]u8{0} ** 32;
-    var sender = CipherState_(ChaCha20Poly1305).init(allocator, key);
+    var sender = CipherState_(ChaCha20Poly1305).init(key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
-    const retval = try sender.encryptWithAd(ad, m);
+    const ciphertext = try std.testing.allocator.alloc(u8, m.len + 16);
+    defer std.testing.allocator.free(ciphertext);
+    const retval = try sender.encryptWithAd(ciphertext, ad, m);
     try testing.expectEqualSlices(u8, m[0..], retval);
 }
 
 test "encryption fails on max nonce" {
-    const allocator = std.testing.allocator;
-
     const key = [_]u8{1} ** 32;
-    var sender = CipherState_(ChaCha20Poly1305).init(allocator, key);
+    var sender = CipherState_(ChaCha20Poly1305).init(key);
     sender.n = std.math.maxInt(u64);
 
-    const retval = sender.encryptWithAd("", "");
+    const retval = sender.encryptWithAd("", "", "");
     try testing.expectError(error.NonceExhaustion, retval);
 }
 
@@ -273,16 +281,18 @@ test "rekey" {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{1} ** 32;
-    var sender = CipherState_(ChaCha20Poly1305).init(allocator, key);
+    var sender = CipherState_(ChaCha20Poly1305).init(key);
 
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
-    const ciphertext1 = try sender.encryptWithAd(ad, m);
+    const ciphertext = try std.testing.allocator.alloc(u8, m.len + 16);
+    const ciphertext1 = try sender.encryptWithAd(ciphertext, ad, m);
     defer allocator.free(ciphertext1);
 
     try sender.rekey();
-    const ciphertext2 = try sender.encryptWithAd(ad, m);
+    const ciphertext2 = try std.testing.allocator.alloc(u8, m.len + 16);
+    _ = try sender.encryptWithAd(ciphertext2, ad, m);
     defer allocator.free(ciphertext2);
     // rekeying actually changed keys
     try std.testing.expect(!std.mem.eql(u8, ciphertext1, ciphertext2));

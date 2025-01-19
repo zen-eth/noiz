@@ -204,6 +204,7 @@ pub const HandshakeState = struct {
 
             const h = try self.symmetric_state.encryptAndHash(payload);
             try message.appendSlice(h);
+            self.allocator.free(h);
         }
 
         return try self.symmetric_state.split();

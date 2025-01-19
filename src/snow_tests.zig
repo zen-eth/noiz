@@ -161,6 +161,7 @@ test "snow" {
         defer responder.deinit();
 
         var send_buf = try ArrayList(u8).initCapacity(std.testing.allocator, MAX_MESSAGE_LEN);
+        defer send_buf.deinit();
         // var recv_buf: [MAX_MESSAGE_LEN]u8 = undefined;
 
         for (vector.messages, 0..) |m, i| {
@@ -177,7 +178,6 @@ test "snow" {
             try std.testing.expectEqualSlices(u8, expected, send_buf.items);
         }
 
-        send_buf.clearAndFree();
         break;
     }
 }
