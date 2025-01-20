@@ -157,7 +157,7 @@ test "snow" {
             var sender = if (i % 2 == 0) initiator else responder;
             var receiver = if (i % 2 == 0) responder else initiator;
 
-            var payload_buf = [_]u8{0} ** MAX_MESSAGE_LEN;
+            var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
             _ = try sender.writeMessage(payload, &send_buf);
 
