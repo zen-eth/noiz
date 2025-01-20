@@ -27,6 +27,16 @@ const CipherState = @import("./cipher.zig").CipherState;
 const Cipher = @import("./cipher.zig").Cipher;
 const Hash = @import("hash.zig").Hash;
 
+pub fn keypairFromSecretKey(secret_key: []const u8) !dh.KeyPair {
+    var sk: [32]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&sk, secret_key);
+    const pk = try std.crypto.dh.X25519.recoverPublicKey(sk);
+
+    return dh.KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
+        .public_key = pk,
+        .secret_key = sk,
+    } };
+}
 ///The max message length in bytes.
 ///
 ///See: http://www.noiseprotocol.org/noise.html#message-format
@@ -149,6 +159,27 @@ pub const HandshakeState = struct {
                     else => @panic(""),
                 }
             }
+        } else {
+            // The initiator's public key(s) are always hashed first.
+            if (handshake_pattern.pre_message_pattern_initiator) |i| {
+                const key_rs = if (keys.rs) |rs| rs[0..] else null;
+                const key_re = if (keys.re) |re| re[0..] else null;
+                switch (i) {
+                    .s => if (key_rs) |rs| try sym.mixHash(rs),
+                    .e => if (key_re) |re| try sym.mixHash(re),
+                    else => @panic(""),
+                }
+            }
+            if (handshake_pattern.pre_message_pattern_responder) |r| {
+                const key_s = keys.s.?.inner.public_key[0..];
+                const key_e = keys.e.?.inner.public_key[0..];
+
+                switch (r) {
+                    .s => try sym.mixHash(key_s),
+                    .e => try sym.mixHash(key_e),
+                    else => @panic(""),
+                }
+            }
         }
 
         const message_patterns = ArrayList(MessagePattern).fromOwnedSlice(allocator, handshake_pattern.message_patterns);
@@ -209,24 +240,26 @@ pub const HandshakeState = struct {
     }
 
     pub fn readMessage(self: *Self, message: []const u8, payload_buf: *ArrayList(u8)) !?struct { CipherState, CipherState } {
+        var msg_idx: usize = 0;
         for (self.message_patterns.items) |m| {
-            var msg_idx: usize = 0;
             for (m) |token| {
                 switch (token) {
                     .e => {
                         std.debug.assert(self.re == null);
                         self.re = undefined;
-                        const len = @min(message.len, msg_idx + dh.KeyPair.DHLEN);
-                        @memcpy(self.re.?[0..len], message[msg_idx..len]);
-                        msg_idx += len;
+                        @memcpy(self.re.?[0..], message[msg_idx .. msg_idx + dh.KeyPair.DHLEN]);
                         try self.symmetric_state.mixHash(&self.re.?);
+
+                        msg_idx += dh.KeyPair.DHLEN;
                     },
                     .s => {
                         const len: usize = if (self.symmetric_state.cipher_state.hasKey()) dh.KeyPair.DHLEN + 16 else dh.KeyPair.DHLEN;
                         const temp = if (self.symmetric_state.cipher_state.hasKey()) message[msg_idx .. msg_idx + len] else message[msg_idx .. msg_idx + len];
 
                         msg_idx += len;
-                        @memcpy(&self.rs.?, try self.symmetric_state.decryptAndHash(temp));
+                        const buf = try self.symmetric_state.decryptAndHash(temp);
+                        @memcpy(&self.rs.?, buf);
+                        self.allocator.free(buf);
                     },
                     .ee => try self.symmetric_state.mixKey(&self.re.?),
                     .es => {
@@ -247,8 +280,9 @@ pub const HandshakeState = struct {
 
             const h = try self.symmetric_state.decryptAndHash(message[msg_idx..message.len]);
             try payload_buf.appendSlice(h);
+            self.allocator.free(h);
         }
-        return null;
+        return try self.symmetric_state.split();
     }
 
     pub fn deinit(self: *Self) void {

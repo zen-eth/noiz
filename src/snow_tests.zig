@@ -62,7 +62,7 @@ const Vectors = struct {
     vectors: []const Vector,
 };
 
-fn keypairFromSecretKey(secret_key: []const u8) !KeyPair {
+pub fn keypairFromSecretKey(secret_key: []const u8) !KeyPair {
     var sk: [32]u8 = undefined;
     _ = try std.fmt.hexToBytes(&sk, secret_key);
     const pk = try std.crypto.dh.X25519.recoverPublicKey(sk);
@@ -97,6 +97,7 @@ test "snow" {
         }
         if (!is_oneway) continue;
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
+        std.debug.print("Testing: {s}\n", .{vector.protocol_name});
 
         const init_s = if (vector.init_static) |s| try keypairFromSecretKey(s) else null;
         const init_e = try keypairFromSecretKey(vector.init_ephemeral);
@@ -104,15 +105,15 @@ test "snow" {
         var init_pk_rs: [32]u8 = undefined;
         _ = try std.fmt.hexToBytes(&init_pk_rs, vector.init_remote_static.?);
 
-        var prologue: [100]u8 = undefined;
-        const decoded = try std.fmt.hexToBytes(&prologue, vector.init_prologue);
+        var init_prologue_buf: [100]u8 = undefined;
+        const init_prologue = try std.fmt.hexToBytes(&init_prologue_buf, vector.init_prologue);
 
         var initiator = try HandshakeState.init(
             vector.protocol_name,
             allocator,
             try patternFromName(allocator, protocol.pattern),
             true,
-            decoded,
+            init_prologue,
             .{
                 .s = init_s,
                 .e = init_e,
@@ -125,33 +126,36 @@ test "snow" {
         const resp_s = if (vector.resp_static) |s| try keypairFromSecretKey(s) else null;
         const resp_e = try keypairFromSecretKey(vector.resp_ephemeral);
 
+        var resp_pk_rs: ?[32]u8 = undefined;
+        if (vector.resp_remote_static) |rs| {
+            _ = try std.fmt.hexToBytes(&resp_pk_rs.?, rs);
+        }
+
+        var resp_prologue_buf: [100]u8 = undefined;
+        const resp_prologue = try std.fmt.hexToBytes(&resp_prologue_buf, vector.resp_prologue);
         var responder = try HandshakeState.init(
             vector.protocol_name,
             allocator,
             try patternFromName(allocator, protocol.pattern),
             false,
-            vector.resp_prologue,
+            resp_prologue,
             .{
                 .s = resp_s,
                 .e = resp_e,
+                .rs = if (resp_pk_rs) |rs| rs else null,
                 .re = null,
             },
         );
         defer responder.deinit();
-        if (vector.resp_remote_static) |rs| {
-            var resp_rs: [32]u8 = undefined;
-            _ = try std.fmt.hexToBytes(&resp_rs, rs);
-            responder.rs = resp_rs;
-        }
 
         var send_buf = try ArrayList(u8).initCapacity(allocator, MAX_MESSAGE_LEN);
+        var recv_buf = try ArrayList(u8).initCapacity(allocator, MAX_MESSAGE_LEN);
         defer send_buf.deinit();
-        // var recv_buf: [MAX_MESSAGE_LEN]u8 = undefined;
+        defer recv_buf.deinit();
 
         for (vector.messages, 0..) |m, i| {
             var sender = if (i % 2 == 0) initiator else responder;
-            const receiver = if (i % 2 == 0) responder else initiator;
-            _ = receiver;
+            var receiver = if (i % 2 == 0) responder else initiator;
 
             var payload_buf = [_]u8{0} ** MAX_MESSAGE_LEN;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
@@ -160,6 +164,8 @@ test "snow" {
             var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
             try std.testing.expectEqualSlices(u8, expected, send_buf.items);
+
+            _ = try receiver.readMessage(send_buf.items, &recv_buf);
         }
     }
 }

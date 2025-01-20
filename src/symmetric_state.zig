@@ -204,17 +204,18 @@ pub const SymmetricState = struct {
     pub fn encryptAndHash(self: *Self, plaintext: []const u8) ![]u8 {
         //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
         var ciphertext = try self.allocator.alloc(u8, plaintext.len + self.cipher_state.tagLength());
+        errdefer self.allocator.free(ciphertext);
         _ = try self.cipher_state.encryptWithAd(ciphertext[0..], self.h.constSlice(), plaintext);
         try self.mixHash(ciphertext);
         return ciphertext;
     }
 
+    /// Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
     pub fn decryptAndHash(self: *Self, ciphertext: []const u8) ![]const u8 {
-        //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
         var plaintext = try self.allocator.alloc(u8, ciphertext.len - self.cipher_state.tagLength());
-        try self.cipher_state.decryptWithAd(&plaintext, self.h.constSlice(), ciphertext);
+        errdefer self.allocator.free(plaintext);
+        _ = try self.cipher_state.decryptWithAd(plaintext[0..], self.h.constSlice(), ciphertext);
         try self.mixHash(ciphertext);
-
         return plaintext;
     }
 

@@ -203,20 +203,19 @@ fn Cipher(comptime C: type) type {
             std.debug.assert(plaintext.len == ciphertext.len - tag_length);
 
             var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
+            const n_bytes: [8]u8 = @bitCast(n);
 
-            var n_bytes: [8]u8 = @bitCast(n);
-            // If `Aes256Gcm` is used, we use big-endian encoding of n.
-            if (Cipher_ == Aes256Gcm) {
-                std.mem.reverse(u8, &n_bytes);
-            }
-            for (nonce[nonce_length - @sizeOf(@TypeOf(n)) .. nonce_length], 0..) |*dst, i| {
-                dst.* = n_bytes[n_bytes.len - i - 1];
+            for (nonce[4..], 0..) |*dst, i| {
+                dst.* = if (C == ChaCha20Poly1305)
+                    n_bytes[n_bytes.len - i - 1]
+                else
+                    n_bytes[i];
             }
 
-            var tag: [tag_length]u8 = [_]u8{0} ** tag_length;
+            var tag: [tag_length]u8 = undefined;
             @memcpy(&tag, ciphertext[ciphertext.len - tag_length .. ciphertext.len]);
             std.debug.assert(tag.len == tag_length);
-            try Cipher_.decrypt(plaintext, ciphertext[0..plaintext.len], tag, ad, nonce, k);
+            try Cipher_.decrypt(plaintext[0..], ciphertext[0 .. ciphertext.len - tag_length], tag, ad, nonce, k);
 
             return plaintext;
         }

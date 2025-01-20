@@ -117,7 +117,6 @@ pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !Hands
         .X => {
             var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 1);
             errdefer allocator.free(patterns);
-
             patterns[0] = &[_]MessageToken{ .e, .es, .s, .ss };
 
             return .{
