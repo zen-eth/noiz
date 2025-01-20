@@ -8,7 +8,7 @@ const HandshakePattern = @import("handshake_pattern.zig").HandshakePattern;
 const patternFromName = @import("handshake_pattern.zig").patternFromName;
 const MessagePattern = @import("handshake_pattern.zig").MessagePattern;
 
-const DH = @import("dh.zig").DH;
+const dh = @import("dh.zig");
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
@@ -77,8 +77,6 @@ test "deriveProtocolName" {
 pub const HandshakeState = struct {
     const Self = @This();
 
-    const dh = DH();
-
     allocator: Allocator,
     /// The local static key pair
     s: ?dh.KeyPair = null,
@@ -122,13 +120,11 @@ pub const HandshakeState = struct {
         protocol_name: []const u8,
         allocator: Allocator,
         // TODO: fix
-        handshake_pattern_name: HandshakePatternName,
         handshake_pattern: HandshakePattern,
         is_initiator: bool,
         prologue: []const u8,
         keys: Keys,
     ) !Self {
-        _ = handshake_pattern_name;
         var sym = try SymmetricState.init(allocator, protocol_name);
         try sym.mixHash(prologue);
 

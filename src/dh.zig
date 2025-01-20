@@ -2,7 +2,7 @@ const std = @import("std");
 
 const X25519 = std.crypto.dh.X25519;
 
-const KeyPair_ = struct {
+pub const KeyPair = struct {
     const Self = @This();
 
     inner: X25519.KeyPair,
@@ -26,8 +26,6 @@ const KeyPair_ = struct {
 pub fn DH() type {
     return struct {
         const Self = @This();
-
-        pub const KeyPair = KeyPair_;
 
         /// Generates a new Diffie-Hellman key pair. A DH key pair consists of public_key and private_key elements.
         /// A public_key represents an encoding of a DH public key into a byte sequence of length `DHLEN`.

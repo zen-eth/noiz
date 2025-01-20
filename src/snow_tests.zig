@@ -5,6 +5,9 @@ const ArrayList = std.ArrayList;
 const print = std.debug.print;
 
 const SymmetricState = @import("symmetric_state.zig").SymmetricState;
+
+const KeyPair = @import("dh.zig").KeyPair;
+
 const protocolFromName = @import("symmetric_state.zig").protocolFromName;
 const HandshakeState = @import("handshake_state.zig").HandshakeState;
 const patternFromName = @import("handshake_pattern.zig").patternFromName;
@@ -59,6 +62,17 @@ const Vectors = struct {
     vectors: []const Vector,
 };
 
+fn keypairFromSecretKey(secret_key: []const u8) !KeyPair {
+    var sk: [32]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&sk, secret_key);
+    const pk = try std.crypto.dh.X25519.recoverPublicKey(sk);
+
+    return KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
+        .public_key = pk,
+        .secret_key = sk,
+    } };
+}
+
 test "snow" {
     const allocator = std.testing.allocator;
     const snow_txt = try std.fs.cwd().openFile("./testdata/snow.txt", .{});
@@ -84,30 +98,11 @@ test "snow" {
         if (!is_oneway) continue;
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
 
-        const init_s = blk: {
-            if (vector.init_static) |s| {
-                var sk_s: [32]u8 = undefined;
-                _ = try std.fmt.hexToBytes(&sk_s, s);
-                const pub_static = try std.crypto.dh.X25519.recoverPublicKey(sk_s);
+        const init_s = if (vector.init_static) |s| try keypairFromSecretKey(s) else null;
+        const init_e = try keypairFromSecretKey(vector.init_ephemeral);
 
-                break :blk DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
-                    .public_key = pub_static,
-                    .secret_key = sk_s,
-                } };
-            } else break :blk null;
-        };
-
-        var init_sk_e: [32]u8 = undefined;
-        _ = try std.fmt.hexToBytes(&init_sk_e, vector.init_ephemeral);
-        const init_pub_ephemeral = try std.crypto.dh.X25519.recoverPublicKey(init_sk_e);
-
-        const init_e = DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
-            .public_key = init_pub_ephemeral,
-            .secret_key = init_sk_e,
-        } };
-
-        var init_sk_rs: [32]u8 = undefined;
-        _ = try std.fmt.hexToBytes(&init_sk_rs, vector.init_remote_static.?);
+        var init_pk_rs: [32]u8 = undefined;
+        _ = try std.fmt.hexToBytes(&init_pk_rs, vector.init_remote_static.?);
 
         var prologue: [100]u8 = undefined;
         const decoded = try std.fmt.hexToBytes(&prologue, vector.init_prologue);
@@ -115,61 +110,39 @@ test "snow" {
         var initiator = try HandshakeState.init(
             vector.protocol_name,
             allocator,
-            std.meta.stringToEnum(HandshakePatternName, protocol.pattern).?,
             try patternFromName(allocator, protocol.pattern),
             true,
             decoded,
             .{
                 .s = init_s,
                 .e = init_e,
-                .rs = init_sk_rs,
+                .rs = init_pk_rs,
                 .re = null,
             },
         );
         defer initiator.deinit();
 
-        const resp_s = blk: {
-            if (vector.resp_static) |s| {
-                var sk_s: [32]u8 = undefined;
-                _ = try std.fmt.hexToBytes(&sk_s, s);
-                const pub_static = try std.crypto.dh.X25519.recoverPublicKey(sk_s);
-
-                break :blk DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
-                    .public_key = pub_static,
-                    .secret_key = sk_s,
-                } };
-            } else break :blk null;
-        };
-
-        var resp_sk_e: [32]u8 = undefined;
-        _ = try std.fmt.hexToBytes(&resp_sk_e, vector.resp_ephemeral);
-        const resp_pub_ephemeral = try std.crypto.dh.X25519.recoverPublicKey(resp_sk_e);
-        const resp_e = DH().KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
-            .public_key = resp_pub_ephemeral,
-            .secret_key = resp_sk_e,
-        } };
-
-        var resp_rs_sk: [32]u8 = undefined;
-        if (vector.resp_remote_static) |rs| {
-            _ = try std.fmt.hexToBytes(&resp_rs_sk, rs);
-        }
-        const resp_rs = try std.crypto.dh.X25519.recoverPublicKey(resp_rs_sk);
+        const resp_s = if (vector.resp_static) |s| try keypairFromSecretKey(s) else null;
+        const resp_e = try keypairFromSecretKey(vector.resp_ephemeral);
 
         var responder = try HandshakeState.init(
             vector.protocol_name,
             allocator,
-            std.meta.stringToEnum(HandshakePatternName, protocol.pattern).?,
             try patternFromName(allocator, protocol.pattern),
             false,
             vector.resp_prologue,
             .{
                 .s = resp_s,
                 .e = resp_e,
-                .rs = resp_rs,
                 .re = null,
             },
         );
         defer responder.deinit();
+        if (vector.resp_remote_static) |rs| {
+            var resp_rs: [32]u8 = undefined;
+            _ = try std.fmt.hexToBytes(&resp_rs, rs);
+            responder.rs = resp_rs;
+        }
 
         var send_buf = try ArrayList(u8).initCapacity(allocator, MAX_MESSAGE_LEN);
         defer send_buf.deinit();
@@ -184,7 +157,7 @@ test "snow" {
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
             _ = try sender.writeMessage(payload, &send_buf);
 
-            var expected_buf: [200]u8 = undefined;
+            var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
             try std.testing.expectEqualSlices(u8, expected, send_buf.items);
         }
