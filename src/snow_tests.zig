@@ -162,10 +162,12 @@ test "snow" {
             _ = try sender.writeMessage(payload, &send_buf);
 
             var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
-            const expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
+            var expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
             try std.testing.expectEqualSlices(u8, expected, send_buf.items);
 
+            expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
             _ = try receiver.readMessage(send_buf.items, &recv_buf);
+            try std.testing.expectEqualSlices(u8, expected, recv_buf.items);
         }
     }
 }
