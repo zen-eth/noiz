@@ -184,6 +184,7 @@ pub const HandshakeState = struct {
                     .s => {
                         const h = try self.symmetric_state.encryptAndHash(&self.s.?.inner.public_key);
                         try message.appendSlice(h);
+                        self.allocator.free(h);
                     },
                     .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
                     .es => {

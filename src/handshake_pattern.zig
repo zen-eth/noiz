@@ -103,22 +103,22 @@ pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !Hands
                 .message_patterns = patterns,
             };
         },
+        .K => {
+            var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 1);
+            errdefer allocator.free(patterns);
+            patterns[0] = &[_]MessageToken{ .e, .es, .ss };
 
-        // .K => {
-        //     return .{
-        //         .pre_message_pattern_initiator = .s,
-        //         .pre_message_pattern_responder = .s,
-        //         .message_patterns = .{ .e, .es, .ss },
-        //     };
-        // },
+            return .{
+                .pre_message_pattern_initiator = .s,
+                .pre_message_pattern_responder = .s,
+                .message_patterns = patterns,
+            };
+        },
         .X => {
-            const tokens: []MessageToken = try allocator.alloc(MessageToken, 4);
-            errdefer allocator.free(tokens);
             var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 1);
             errdefer allocator.free(patterns);
 
-            std.mem.copyForwards(MessageToken, tokens, &[_]MessageToken{ .e, .es, .s, .ss });
-            @memset(patterns[0..1], tokens);
+            patterns[0] = &[_]MessageToken{ .e, .es, .s, .ss };
 
             return .{
                 .pre_message_pattern_initiator = null,

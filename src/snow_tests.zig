@@ -2,6 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
+const print = std.debug.print;
+
 const SymmetricState = @import("symmetric_state.zig").SymmetricState;
 const protocolFromName = @import("symmetric_state.zig").protocolFromName;
 const HandshakeState = @import("handshake_state.zig").HandshakeState;
@@ -59,7 +61,7 @@ const Vectors = struct {
 
 test "snow" {
     const allocator = std.testing.allocator;
-    const snow_txt = try std.fs.cwd().openFile("./testdata/snow2.txt", .{});
+    const snow_txt = try std.fs.cwd().openFile("./testdata/snow.txt", .{});
     const buf: []u8 = try snow_txt.readToEndAlloc(allocator, 1_000_000);
     defer std.testing.allocator.free(buf);
 
@@ -68,9 +70,18 @@ test "snow" {
     const data = try std.json.parseFromSlice(Vectors, allocator, buf[0..], .{});
     defer data.deinit();
 
+    const oneway_patterns = [3][]const u8{ "N", "X", "K" };
+
     for (data.value.vectors) |vector| {
         const protocol = protocolFromName(vector.protocol_name);
 
+        var is_oneway = false;
+        for (oneway_patterns) |p| {
+            if (std.mem.eql(u8, protocol.pattern, p)) {
+                is_oneway = true;
+            }
+        }
+        if (!is_oneway) continue;
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
 
         const init_s = blk: {
@@ -177,7 +188,5 @@ test "snow" {
             const expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
             try std.testing.expectEqualSlices(u8, expected, send_buf.items);
         }
-
-        break;
     }
 }
