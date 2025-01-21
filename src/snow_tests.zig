@@ -84,30 +84,35 @@ test "snow" {
     const data = try std.json.parseFromSlice(Vectors, allocator, buf[0..], .{});
     defer data.deinit();
 
-    const oneway_patterns = [3][]const u8{ "N", "X", "K" };
+    const wanted_patterns = [_][]const u8{ "N", "K", "X", "NN", "NK", "NX" };
+    // const wanted_patterns = [_][]const u8{};
 
+    std.debug.print("\n\n", .{});
     for (data.value.vectors) |vector| {
         const protocol = protocolFromName(vector.protocol_name);
 
-        var is_oneway = false;
-        for (oneway_patterns) |p| {
+        var should_test = false;
+        for (wanted_patterns) |p| {
             if (std.mem.eql(u8, protocol.pattern, p)) {
-                is_oneway = true;
+                should_test = true;
             }
         }
-        if (!is_oneway) continue;
+        if (!should_test) continue;
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
-        std.debug.print("Testing: {s}\n", .{vector.protocol_name});
+        std.debug.print("\n***** Testing: {s} *****\n", .{vector.protocol_name});
 
         const init_s = if (vector.init_static) |s| try keypairFromSecretKey(s) else null;
         const init_e = try keypairFromSecretKey(vector.init_ephemeral);
 
-        var init_pk_rs: [32]u8 = undefined;
-        _ = try std.fmt.hexToBytes(&init_pk_rs, vector.init_remote_static.?);
+        var init_pk_rs: ?[32]u8 = undefined;
+        if (vector.init_remote_static) |rs| {
+            _ = try std.fmt.hexToBytes(&init_pk_rs.?, rs);
+        }
 
         var init_prologue_buf: [100]u8 = undefined;
         const init_prologue = try std.fmt.hexToBytes(&init_prologue_buf, vector.init_prologue);
 
+        const resp_e = try keypairFromSecretKey(vector.resp_ephemeral);
         var initiator = try HandshakeState.init(
             vector.protocol_name,
             allocator,
@@ -117,14 +122,12 @@ test "snow" {
             .{
                 .s = init_s,
                 .e = init_e,
-                .rs = init_pk_rs,
-                .re = null,
+                .rs = if (init_pk_rs) |rs| rs else null,
             },
         );
         defer initiator.deinit();
 
         const resp_s = if (vector.resp_static) |s| try keypairFromSecretKey(s) else null;
-        const resp_e = try keypairFromSecretKey(vector.resp_ephemeral);
 
         var resp_pk_rs: ?[32]u8 = undefined;
         if (vector.resp_remote_static) |rs| {
@@ -143,7 +146,6 @@ test "snow" {
                 .s = resp_s,
                 .e = resp_e,
                 .rs = if (resp_pk_rs) |rs| rs else null,
-                .re = null,
             },
         );
         defer responder.deinit();
@@ -154,8 +156,9 @@ test "snow" {
         defer recv_buf.deinit();
 
         for (vector.messages, 0..) |m, i| {
-            var sender = if (i % 2 == 0) initiator else responder;
-            var receiver = if (i % 2 == 0) responder else initiator;
+            std.debug.print("Testing message {}\n", .{i});
+            var sender = if (i % 2 == 0) &initiator else &responder;
+            var receiver = if (i % 2 == 0) &responder else &initiator;
 
             var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
@@ -168,6 +171,11 @@ test "snow" {
             expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
             _ = try receiver.readMessage(send_buf.items, &recv_buf);
             try std.testing.expectEqualSlices(u8, expected, recv_buf.items);
+
+            send_buf.clearAndFree();
+            recv_buf.clearAndFree();
         }
+
+        std.debug.print("***** Done *****\n", .{});
     }
 }

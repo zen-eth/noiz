@@ -103,6 +103,32 @@ pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !Hands
                 .message_patterns = patterns,
             };
         },
+        .NK => {
+            var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 2);
+            errdefer allocator.free(patterns);
+
+            patterns[0] = &[_]MessageToken{ .e, .es };
+            patterns[1] = &[_]MessageToken{ .e, .ee };
+
+            return .{
+                .pre_message_pattern_initiator = null,
+                .pre_message_pattern_responder = .s,
+                .message_patterns = patterns,
+            };
+        },
+        .NX => {
+            var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 2);
+            errdefer allocator.free(patterns);
+
+            patterns[0] = &[_]MessageToken{.e};
+            patterns[1] = &[_]MessageToken{ .e, .ee, .s, .es };
+
+            return .{
+                .pre_message_pattern_initiator = null,
+                .pre_message_pattern_responder = null,
+                .message_patterns = patterns,
+            };
+        },
         .K => {
             var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 1);
             errdefer allocator.free(patterns);

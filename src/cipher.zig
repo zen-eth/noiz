@@ -3,6 +3,7 @@ const std = @import("std");
 const Aes256Gcm = std.crypto.aead.aes_gcm.Aes256Gcm;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
+const BoundedArray = std.BoundedArray;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 
@@ -12,6 +13,7 @@ const CipherError = error{
     /// This means parties are not allowed to send more than (2^64)-1 transport messages.
     NonceExhaustion,
     OutOfMemory,
+    Overflow,
     AuthenticationFailed,
 };
 
@@ -106,10 +108,13 @@ fn CipherState_(comptime C: type) type {
 
         /// If `k` is non-empty returns `Cipher_.encrypt(k, n++, ad, plaintext). Otherwise return plaintext.
         fn encryptWithAd(self: *Self, ciphertext: []u8, ad: []const u8, plaintext: []const u8) CipherError![]const u8 {
-            if (!self.hasKey()) return plaintext;
+            if (!self.hasKey()) {
+                @memcpy(ciphertext[0..plaintext.len], plaintext);
+                return plaintext;
+            }
             if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
-            _ = Cipher_.encrypt(ciphertext, self.k, self.n, ad, plaintext) catch |err| {
+            const slice = Cipher_.encrypt(ciphertext, self.k, self.n, ad, plaintext) catch |err| {
                 // Nonce is still incremented if encryption fails.
                 // Reusing a nonce value for n with the same key k for encryption would be catastrophic.
                 // Nonces are not allowed to wrap back to zero due to integer overflow, and the maximum nonce value is reserved.
@@ -118,23 +123,27 @@ fn CipherState_(comptime C: type) type {
             };
 
             self.n += 1;
-            return ciphertext;
+            return slice;
         }
 
         pub fn decryptWithAd(self: *Self, plaintext: []u8, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
-            if (!self.hasKey()) return ciphertext;
+            if (!self.hasKey()) {
+                @memcpy(plaintext[0..ciphertext.len], ciphertext);
+                return ciphertext;
+            }
             if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
             // Nonce is NOT incremented if decryption fails.
-            _ = try Cipher_.decrypt(plaintext, self.k, self.n, ad, ciphertext);
+            const slice = try Cipher_.decrypt(plaintext, self.k, self.n, ad, ciphertext);
             self.n += 1;
 
-            return plaintext;
+            return slice;
         }
 
         pub fn rekey(self: *Self) !void {
             self.k = try Cipher_.rekey(self.k);
         }
+
         fn tagLength(_: *Self) usize {
             return Cipher_.tag_length;
         }
@@ -172,8 +181,7 @@ fn Cipher(comptime C: type) type {
             n: u64,
             ad: []const u8,
             plaintext: []const u8,
-        ) ![]u8 {
-            std.debug.assert(ciphertext.len == plaintext.len + tag_length);
+        ) ![]const u8 {
             var tag: [tag_length]u8 = undefined;
             var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
             const n_bytes: [8]u8 = @bitCast(n);
@@ -187,7 +195,7 @@ fn Cipher(comptime C: type) type {
             Cipher_.encrypt(ciphertext[0..plaintext.len], tag[0..], plaintext, ad, nonce, k);
 
             @memcpy(ciphertext[plaintext.len .. plaintext.len + tag_length], &tag);
-            return ciphertext;
+            return ciphertext[0 .. plaintext.len + tag_length];
         }
 
         /// Decrypts `ciphertext` using a cipher key `k` of 32-bytes, an 8-byte unsigned integer nonce `n`, and associated data `ad`.
@@ -200,8 +208,6 @@ fn Cipher(comptime C: type) type {
             ad: []const u8,
             ciphertext: []const u8,
         ) ![]const u8 {
-            std.debug.assert(plaintext.len == ciphertext.len - tag_length);
-
             var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
             const n_bytes: [8]u8 = @bitCast(n);
 
@@ -213,11 +219,10 @@ fn Cipher(comptime C: type) type {
             }
 
             var tag: [tag_length]u8 = undefined;
-            @memcpy(&tag, ciphertext[ciphertext.len - tag_length .. ciphertext.len]);
-            std.debug.assert(tag.len == tag_length);
-            try Cipher_.decrypt(plaintext[0..], ciphertext[0 .. ciphertext.len - tag_length], tag, ad, nonce, k);
+            @memcpy(tag[0..], ciphertext[ciphertext.len - tag_length .. ciphertext.len]);
+            try Cipher_.decrypt(plaintext[0 .. ciphertext.len - tag_length], ciphertext[0 .. ciphertext.len - tag_length], tag, ad, nonce, k);
 
-            return plaintext;
+            return plaintext[0 .. ciphertext.len - tag_length];
         }
 
         fn rekey(k: [key_length]u8) ![32]u8 {

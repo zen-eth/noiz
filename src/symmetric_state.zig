@@ -4,6 +4,8 @@ const BoundedArray = std.BoundedArray;
 
 const Allocator = std.mem.Allocator;
 
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
+
 const CipherState = @import("./cipher.zig").CipherState;
 const CipherChoice = @import("./cipher.zig").CipherChoice;
 const Hash = @import("hash.zig").Hash;
@@ -184,7 +186,6 @@ pub const SymmetricState = struct {
     }
 
     pub fn mixHash(self: *Self, data: []const u8) !void {
-        _ = [_]u8{0} ** 32;
         const h_with_data = try std.mem.concat(self.allocator, u8, &[_][]const u8{ self.h.constSlice(), data });
         defer self.allocator.free(h_with_data);
         self.h = try self.hasher.hash(h_with_data);
@@ -201,22 +202,18 @@ pub const SymmetricState = struct {
         self.cipher_state.init(temp_k);
     }
 
-    pub fn encryptAndHash(self: *Self, plaintext: []const u8) ![]u8 {
+    pub fn encryptAndHash(self: *Self, ciphertext: []u8, plaintext: []const u8) ![]const u8 {
         //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
-        var ciphertext = try self.allocator.alloc(u8, plaintext.len + self.cipher_state.tagLength());
-        errdefer self.allocator.free(ciphertext);
-        _ = try self.cipher_state.encryptWithAd(ciphertext[0..], self.h.constSlice(), plaintext);
-        try self.mixHash(ciphertext);
-        return ciphertext;
+        const slice = try self.cipher_state.encryptWithAd(ciphertext, self.h.constSlice(), plaintext);
+        try self.mixHash(slice);
+        return slice;
     }
 
     /// Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
-    pub fn decryptAndHash(self: *Self, ciphertext: []const u8) ![]const u8 {
-        var plaintext = try self.allocator.alloc(u8, ciphertext.len - self.cipher_state.tagLength());
-        errdefer self.allocator.free(plaintext);
-        _ = try self.cipher_state.decryptWithAd(plaintext[0..], self.h.constSlice(), ciphertext);
+    pub fn decryptAndHash(self: *Self, plaintext: []u8, ciphertext: []const u8) ![]const u8 {
+        const decrypted = try self.cipher_state.decryptWithAd(plaintext, self.h.constSlice(), ciphertext);
         try self.mixHash(ciphertext);
-        return plaintext;
+        return decrypted;
     }
 
     pub fn split(
