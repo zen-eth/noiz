@@ -76,81 +76,124 @@ message_patterns: []MessagePattern,
 
 pub const HandshakePattern = @This();
 
-pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !HandshakePattern {
+pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
     const hs_pattern_name_en = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name).?;
+
     switch (hs_pattern_name_en) {
         .N => {
-            var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 1);
-            errdefer allocator.free(patterns);
-            patterns[0] = &[_]MessageToken{ .e, .es };
+            var patterns: [1]MessagePattern = .{&[_]MessageToken{ .e, .es }};
 
             return .{
                 .pre_message_pattern_initiator = null,
                 .pre_message_pattern_responder = .s,
-                .message_patterns = patterns,
+                .message_patterns = &patterns,
             };
         },
         .NN => {
-            var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 2);
-            errdefer allocator.free(patterns);
-
-            patterns[0] = &[_]MessageToken{.e};
-            patterns[1] = &[_]MessageToken{ .e, .ee };
+            var patterns: [2]MessagePattern = .{
+                &[_]MessageToken{.e},
+                &[_]MessageToken{ .e, .ee },
+            };
 
             return .{
                 .pre_message_pattern_initiator = null,
                 .pre_message_pattern_responder = null,
-                .message_patterns = patterns,
+                .message_patterns = &patterns,
             };
         },
         .NK => {
-            var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 2);
-            errdefer allocator.free(patterns);
-
-            patterns[0] = &[_]MessageToken{ .e, .es };
-            patterns[1] = &[_]MessageToken{ .e, .ee };
+            var patterns: [2]MessagePattern = .{
+                &[_]MessageToken{ .e, .es },
+                &[_]MessageToken{ .e, .ee },
+            };
 
             return .{
                 .pre_message_pattern_initiator = null,
                 .pre_message_pattern_responder = .s,
-                .message_patterns = patterns,
+                .message_patterns = &patterns,
             };
         },
         .NX => {
-            var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 2);
-            errdefer allocator.free(patterns);
-
-            patterns[0] = &[_]MessageToken{.e};
-            patterns[1] = &[_]MessageToken{ .e, .ee, .s, .es };
+            var patterns: [2]MessagePattern = .{
+                &[_]MessageToken{.e},
+                &[_]MessageToken{ .e, .ee, .s, .es },
+            };
 
             return .{
                 .pre_message_pattern_initiator = null,
                 .pre_message_pattern_responder = null,
-                .message_patterns = patterns,
+                .message_patterns = &patterns,
             };
         },
         .K => {
-            var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 1);
-            errdefer allocator.free(patterns);
-            patterns[0] = &[_]MessageToken{ .e, .es, .ss };
+            var patterns: [1]MessagePattern = .{&[_]MessageToken{ .e, .es, .ss }};
 
             return .{
                 .pre_message_pattern_initiator = .s,
                 .pre_message_pattern_responder = .s,
-                .message_patterns = patterns,
+                .message_patterns = &patterns,
             };
         },
+        .KN => {
+            var patterns: [2]MessagePattern = [_]MessagePattern{
+                &[_]MessageToken{.e},
+                &[_]MessageToken{ .e, .ee, .es },
+            };
+
+            return .{
+                .pre_message_pattern_initiator = .s,
+                .pre_message_pattern_responder = null,
+                .message_patterns = &patterns,
+            };
+        },
+        .KK => {
+            var patterns: [2]MessagePattern = .{
+                &[_]MessageToken{ .e, .es, .ss },
+                &[_]MessageToken{ .e, .ee, .se },
+            };
+
+            return .{
+                .pre_message_pattern_initiator = .s,
+                .pre_message_pattern_responder = .s,
+                .message_patterns = &patterns,
+            };
+        },
+        .KX => {
+            var patterns: [2]MessagePattern = .{
+                &[_]MessageToken{.e},
+                &[_]MessageToken{ .e, .ee, .se, .s, .es },
+            };
+
+            return .{
+                .pre_message_pattern_initiator = .s,
+                .pre_message_pattern_responder = null,
+                .message_patterns = &patterns,
+            };
+        },
+
         .X => {
-            var patterns: []MessagePattern = try allocator.alloc(MessagePattern, 1);
-            errdefer allocator.free(patterns);
-            patterns[0] = &[_]MessageToken{ .e, .es, .s, .ss };
+            var patterns: [1]MessagePattern = .{&[_]MessageToken{ .e, .es, .s, .ss }};
 
             return .{
                 .pre_message_pattern_initiator = null,
                 .pre_message_pattern_responder = .s,
-                .message_patterns = patterns,
+                .message_patterns = &patterns,
             };
         },
+        .XN => {
+            var patterns: [3]MessagePattern = .{
+                &[_]MessageToken{.e},
+                &[_]MessageToken{ .e, .ee },
+                &[_]MessageToken{ .s, .es },
+            };
+
+            return .{
+                .pre_message_pattern_initiator = null,
+                .pre_message_pattern_responder = null,
+                .message_patterns = &patterns,
+            };
+        },
+
         else => {
             @panic("unimpl");
         },

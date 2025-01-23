@@ -131,7 +131,6 @@ pub const HandshakeState = struct {
     pub fn init(
         protocol_name: []const u8,
         allocator: Allocator,
-        // TODO: fix
         handshake_pattern: HandshakePattern,
         is_initiator: bool,
         prologue: []const u8,
@@ -185,7 +184,10 @@ pub const HandshakeState = struct {
             }
         }
 
-        const message_patterns = ArrayList(MessagePattern).fromOwnedSlice(allocator, handshake_pattern.message_patterns);
+        var message_patterns = try ArrayList(MessagePattern).initCapacity(allocator, handshake_pattern.message_patterns.len);
+        for (handshake_pattern.message_patterns) |p| {
+            try message_patterns.append(p);
+        }
 
         return .{
             .allocator = allocator,
@@ -201,7 +203,7 @@ pub const HandshakeState = struct {
 
     pub fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState, CipherState } {
         const pattern = self.message_patterns.items[self.pattern_idx];
-        std.debug.print("writeMessage: message[{}]: {any}\n", .{ self.pattern_idx, pattern });
+        std.debug.print("initiator? {} writeMessage: message[{}]: {any}\n", .{ self.is_initiator, self.pattern_idx, pattern });
         for (pattern) |token| {
             std.debug.print("writeMessage: token: {}\n", .{token});
             switch (token) {
@@ -221,6 +223,7 @@ pub const HandshakeState = struct {
                 .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
                 .es => {
                     var keypair, const ikm = if (self.is_initiator) .{ self.e, self.rs } else .{ self.s, self.re };
+                    std.debug.print("initiator? {} keypair = {any}\n", .{ self.is_initiator, keypair });
                     const dh_out = try keypair.?.DH(ikm.?);
                     try self.symmetric_state.mixKey(&dh_out);
                 },

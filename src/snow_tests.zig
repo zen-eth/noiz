@@ -85,7 +85,7 @@ test "snow" {
     defer data.deinit();
 
     const wanted_patterns = [_][]const u8{ "N", "K", "X", "NN", "NK", "NX" };
-    // const wanted_patterns = [_][]const u8{};
+    // const wanted_patterns = [_][]const u8{"KN"};
 
     std.debug.print("\n\n", .{});
     for (data.value.vectors) |vector| {
@@ -112,11 +112,10 @@ test "snow" {
         var init_prologue_buf: [100]u8 = undefined;
         const init_prologue = try std.fmt.hexToBytes(&init_prologue_buf, vector.init_prologue);
 
-        const resp_e = try keypairFromSecretKey(vector.resp_ephemeral);
         var initiator = try HandshakeState.init(
             vector.protocol_name,
             allocator,
-            try patternFromName(allocator, protocol.pattern),
+            try patternFromName(protocol.pattern),
             true,
             init_prologue,
             .{
@@ -128,6 +127,7 @@ test "snow" {
         defer initiator.deinit();
 
         const resp_s = if (vector.resp_static) |s| try keypairFromSecretKey(s) else null;
+        const resp_e = try keypairFromSecretKey(vector.resp_ephemeral);
 
         var resp_pk_rs: ?[32]u8 = undefined;
         if (vector.resp_remote_static) |rs| {
@@ -139,7 +139,7 @@ test "snow" {
         var responder = try HandshakeState.init(
             vector.protocol_name,
             allocator,
-            try patternFromName(allocator, protocol.pattern),
+            try patternFromName(protocol.pattern),
             false,
             resp_prologue,
             .{
@@ -159,6 +159,7 @@ test "snow" {
             std.debug.print("Testing message {}\n", .{i});
             var sender = if (i % 2 == 0) &initiator else &responder;
             var receiver = if (i % 2 == 0) &responder else &initiator;
+            std.debug.print("sender is initiator? {} receiver? {} \n", .{ sender.is_initiator, receiver.is_initiator });
 
             var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
