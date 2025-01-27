@@ -30,8 +30,6 @@ pub const HandshakePatternName = enum {
     K,
     /// X = Static key for sender **X**mitted (transmitted) to recipient
     X,
-    /// I = Static key for initiator **I**mmediately transmitted to responder, despite reduced or absent identity hiding
-    I,
     /// N = **N**o static key for initiator
     /// N = **N**o static key for responder
     NN,
@@ -137,7 +135,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
         .KN => {
             var patterns: [2]MessagePattern = [_]MessagePattern{
                 &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .es },
+                &[_]MessageToken{ .e, .ee, .se },
             };
 
             return .{
@@ -151,7 +149,6 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .es, .ss },
                 &[_]MessageToken{ .e, .ee, .se },
             };
-
             return .{
                 .pre_message_pattern_initiator = .s,
                 .pre_message_pattern_responder = .s,
@@ -170,7 +167,6 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 .message_patterns = &patterns,
             };
         },
-
         .X => {
             var patterns: [1]MessagePattern = .{&[_]MessageToken{ .e, .es, .s, .ss }};
 
@@ -184,7 +180,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
             var patterns: [3]MessagePattern = .{
                 &[_]MessageToken{.e},
                 &[_]MessageToken{ .e, .ee },
-                &[_]MessageToken{ .s, .es },
+                &[_]MessageToken{ .s, .se },
             };
 
             return .{
@@ -193,9 +189,67 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 .message_patterns = &patterns,
             };
         },
+        .XK => {
+            var patterns: [3]MessagePattern = .{
+                &[_]MessageToken{ .e, .es },
+                &[_]MessageToken{ .e, .ee },
+                &[_]MessageToken{ .s, .se },
+            };
 
-        else => {
-            @panic("unimpl");
+            return .{
+                .pre_message_pattern_initiator = null,
+                .pre_message_pattern_responder = .s,
+                .message_patterns = &patterns,
+            };
+        },
+        .XX => {
+            var patterns: [3]MessagePattern = .{
+                &[_]MessageToken{.e},
+                &[_]MessageToken{ .e, .ee, .s, .es },
+                &[_]MessageToken{ .s, .se },
+            };
+
+            return .{
+                .pre_message_pattern_initiator = null,
+                .pre_message_pattern_responder = null,
+                .message_patterns = &patterns,
+            };
+        },
+        .IN => {
+            var patterns: [2]MessagePattern = .{
+                &[_]MessageToken{ .e, .s },
+                &[_]MessageToken{ .e, .ee, .se },
+            };
+
+            return .{
+                .pre_message_pattern_initiator = null,
+                .pre_message_pattern_responder = null,
+                .message_patterns = &patterns,
+            };
+        },
+        .IK => {
+            var patterns: [2]MessagePattern = .{
+                &[_]MessageToken{ .e, .es, .s, .ss },
+                &[_]MessageToken{ .e, .ee, .se },
+            };
+
+            return .{
+                .pre_message_pattern_initiator = null,
+                .pre_message_pattern_responder = .s,
+                .message_patterns = &patterns,
+            };
+        },
+        .IX => {
+            var patterns: [2]MessagePattern = .{
+                &[_]MessageToken{ .e, .s },
+                &[_]MessageToken{ .e, .ee, .se, .s, .es },
+            };
+
+            return .{
+                .pre_message_pattern_initiator = null,
+                .pre_message_pattern_responder = null,
+                .message_patterns = &patterns,
+            };
         },
     }
 }

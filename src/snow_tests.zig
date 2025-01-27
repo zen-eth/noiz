@@ -84,8 +84,8 @@ test "snow" {
     const data = try std.json.parseFromSlice(Vectors, allocator, buf[0..], .{});
     defer data.deinit();
 
-    const wanted_patterns = [_][]const u8{ "N", "K", "X", "NN", "NK", "NX" };
-    // const wanted_patterns = [_][]const u8{"KN"};
+    // const wanted_patterns = [_][]const u8{ "N", "K", "X", "NN", "NK", "NX", "KN", "KK", "IN", "IK", "IX" };
+    const wanted_patterns = [_][]const u8{"XN"};
 
     std.debug.print("\n\n", .{});
     for (data.value.vectors) |vector| {

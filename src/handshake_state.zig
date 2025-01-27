@@ -185,9 +185,7 @@ pub const HandshakeState = struct {
         }
 
         var message_patterns = try ArrayList(MessagePattern).initCapacity(allocator, handshake_pattern.message_patterns.len);
-        for (handshake_pattern.message_patterns) |p| {
-            try message_patterns.append(p);
-        }
+        for (handshake_pattern.message_patterns) |p| try message_patterns.append(p);
 
         return .{
             .allocator = allocator,
@@ -223,24 +221,26 @@ pub const HandshakeState = struct {
                 .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
                 .es => {
                     var keypair, const ikm = if (self.is_initiator) .{ self.e, self.rs } else .{ self.s, self.re };
-                    std.debug.print("initiator? {} keypair = {any}\n", .{ self.is_initiator, keypair });
                     const dh_out = try keypair.?.DH(ikm.?);
                     try self.symmetric_state.mixKey(&dh_out);
                 },
                 .se => {
                     var keypair, const ikm = if (self.is_initiator) .{ self.s, self.re } else .{ self.e, self.rs };
-                    try self.symmetric_state.mixKey(&try keypair.?.DH(ikm.?));
+                    const dh_out = try keypair.?.DH(ikm.?);
+                    try self.symmetric_state.mixKey(&dh_out);
                 },
                 .ss => try self.symmetric_state.mixKey(&try self.s.?.DH(self.rs.?)),
                 .psk => {
                     // no-op
                 },
             }
+            std.debug.print("msg.len = {any}\n", .{message.items.len});
         }
 
         var ciphertext: [80]u8 = undefined;
         const h = try self.symmetric_state.encryptAndHash(&ciphertext, payload);
         try message.appendSlice(h);
+        std.debug.print("msg.len = {any}\n", .{message.items.len});
         self.pattern_idx += 1;
         if (self.pattern_idx == self.message_patterns.items.len) return try self.symmetric_state.split();
 
