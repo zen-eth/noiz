@@ -30,6 +30,8 @@ pub const CipherState = union(enum) {
     chacha: CipherState_(ChaCha20Poly1305),
     aesgcm: CipherState_(Aes256Gcm),
 
+    const nonce_length: usize = 12;
+
     pub fn init(cipher_st: []const u8, key: [32]u8) CipherState {
         const len = std.mem.sliceTo(cipher_st, 0).len;
         const cipher_choice = std.meta.stringToEnum(CipherChoice, cipher_st[0..len]);
@@ -40,10 +42,26 @@ pub const CipherState = union(enum) {
     }
 
     pub fn encryptWithAd(self: *CipherState, ciphertext: []u8, ad: []const u8, plaintext: []const u8) ![]const u8 {
-        return switch (self.*) {
-            .chacha => self.chacha.encryptWithAd(ciphertext, ad, plaintext),
-            .aesgcm => self.aesgcm.encryptWithAd(ciphertext, ad, plaintext),
-        };
+        var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
+
+        switch (self.*) {
+            .chacha => {
+                const n_bytes: [8]u8 = @bitCast(self.chacha.n);
+                for (nonce[nonce_length - @sizeOf(@TypeOf(self.chacha.n)) .. nonce_length], 0..) |*dst, i| {
+                    dst.* = n_bytes[i];
+                }
+
+                return self.chacha.encryptWithAd(ciphertext, ad, plaintext, nonce);
+            },
+            .aesgcm => {
+                const n_bytes: [8]u8 = @bitCast(self.aesgcm.n);
+                for (nonce[nonce_length - @sizeOf(@TypeOf(self.aesgcm.n)) .. nonce_length], 0..) |*dst, i| {
+                    dst.* = n_bytes[n_bytes.len - i - 1];
+                }
+
+                return self.aesgcm.encryptWithAd(ciphertext, ad, plaintext, nonce);
+            },
+        }
     }
 
     pub fn decryptWithAd(self: *CipherState, plaintext: []u8, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
@@ -84,6 +102,8 @@ fn CipherState_(comptime C: type) type {
         /// An 8-byte (64-bit) unsigned integer nonce.
         n: u64,
 
+        nonce_length: usize = Cipher_.nonce_length,
+
         /// Sets `k` = `key` and `n` = 0.
         fn init(key: [32]u8) Self {
             return .{ .k = key, .n = 0 };
@@ -101,14 +121,14 @@ fn CipherState_(comptime C: type) type {
         }
 
         /// If `k` is non-empty returns `Cipher_.encrypt(k, n++, ad, plaintext). Otherwise return plaintext.
-        fn encryptWithAd(self: *Self, ciphertext: []u8, ad: []const u8, plaintext: []const u8) CipherError![]const u8 {
+        fn encryptWithAd(self: *Self, ciphertext: []u8, ad: []const u8, plaintext: []const u8, nonce: [Cipher_.nonce_length]u8) CipherError![]const u8 {
             if (!self.hasKey()) {
                 @memcpy(ciphertext[0..plaintext.len], plaintext);
                 return ciphertext[0..plaintext.len];
             }
             if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
-            const slice = Cipher_.encrypt(ciphertext, self.k, self.n, ad, plaintext) catch |err| {
+            const slice = Cipher_.encrypt(ciphertext, self.k, nonce, ad, plaintext) catch |err| {
                 // Nonce is still incremented if encryption fails.
                 // Reusing a nonce value for n with the same key k for encryption would be catastrophic.
                 // Nonces are not allowed to wrap back to zero due to integer overflow, and the maximum nonce value is reserved.
@@ -168,20 +188,11 @@ fn Cipher(comptime C: type) type {
         fn encrypt(
             ciphertext: []u8,
             k: [key_length]u8,
-            n: u64,
+            nonce: [nonce_length]u8,
             ad: []const u8,
             plaintext: []const u8,
         ) ![]const u8 {
             var tag: [tag_length]u8 = undefined;
-            var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
-            const n_bytes: [8]u8 = @bitCast(n);
-
-            for (nonce[nonce_length - @sizeOf(@TypeOf(n)) .. nonce_length], 0..) |*dst, i| {
-                dst.* = if (C == ChaCha20Poly1305)
-                    n_bytes[i]
-                else
-                    n_bytes[n_bytes.len - i - 1];
-            }
             Cipher_.encrypt(ciphertext[0..plaintext.len], tag[0..], plaintext, ad, nonce, k);
 
             @memcpy(ciphertext[plaintext.len .. plaintext.len + tag_length], &tag);
