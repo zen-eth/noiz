@@ -65,9 +65,25 @@ pub const CipherState = union(enum) {
     }
 
     pub fn decryptWithAd(self: *CipherState, plaintext: []u8, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
+        var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
+
         switch (self.*) {
-            .chacha => return self.chacha.decryptWithAd(plaintext, ad, ciphertext),
-            .aesgcm => return self.aesgcm.decryptWithAd(plaintext, ad, ciphertext),
+            .chacha => {
+                const n_bytes: [8]u8 = @bitCast(self.chacha.n);
+                for (nonce[nonce_length - @sizeOf(@TypeOf(self.chacha.n)) .. nonce_length], 0..) |*dst, i| {
+                    dst.* = n_bytes[i];
+                }
+
+                return self.chacha.decryptWithAd(plaintext, ad, ciphertext, nonce);
+            },
+            .aesgcm => {
+                const n_bytes: [8]u8 = @bitCast(self.aesgcm.n);
+                for (nonce[nonce_length - @sizeOf(@TypeOf(self.aesgcm.n)) .. nonce_length], 0..) |*dst, i| {
+                    dst.* = n_bytes[n_bytes.len - i - 1];
+                }
+
+                return self.aesgcm.decryptWithAd(plaintext, ad, ciphertext, nonce);
+            },
         }
     }
 
@@ -79,11 +95,11 @@ pub const CipherState = union(enum) {
         }
     }
 
-    pub fn tagLength(self: *CipherState) usize {
-        switch (self.*) {
-            .chacha => return self.chacha.tagLength(),
-            .aesgcm => return self.aesgcm.tagLength(),
-        }
+    pub fn rekey(self: *CipherState) !void {
+        return switch (self.*) {
+            .chacha => try self.chacha.rekey(),
+            .aesgcm => try self.aesgcm.rekey(),
+        };
     }
 };
 
@@ -140,7 +156,7 @@ fn CipherState_(comptime C: type) type {
             return slice;
         }
 
-        pub fn decryptWithAd(self: *Self, plaintext: []u8, ad: []const u8, ciphertext: []const u8) CipherError![]const u8 {
+        pub fn decryptWithAd(self: *Self, plaintext: []u8, ad: []const u8, ciphertext: []const u8, nonce: [Cipher_.nonce_length]u8) CipherError![]const u8 {
             if (!self.hasKey()) {
                 @memcpy(plaintext[0..ciphertext.len], ciphertext);
                 return ciphertext;
@@ -148,7 +164,7 @@ fn CipherState_(comptime C: type) type {
             if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
             // Nonce is NOT incremented if decryption fails.
-            const slice = try Cipher_.decrypt(plaintext, self.k, self.n, ad, ciphertext);
+            const slice = try Cipher_.decrypt(plaintext, self.k, nonce, ad, ciphertext);
             self.n += 1;
 
             return slice;
@@ -156,10 +172,6 @@ fn CipherState_(comptime C: type) type {
 
         pub fn rekey(self: *Self) !void {
             self.k = try Cipher_.rekey(self.k);
-        }
-
-        fn tagLength(_: *Self) usize {
-            return Cipher_.tag_length;
         }
     };
 }
@@ -205,20 +217,10 @@ fn Cipher(comptime C: type) type {
         fn decrypt(
             plaintext: []u8,
             k: [key_length]u8,
-            n: u64,
+            nonce: [nonce_length]u8,
             ad: []const u8,
             ciphertext: []const u8,
         ) ![]const u8 {
-            var nonce: [nonce_length]u8 = [_]u8{0} ** nonce_length;
-            const n_bytes: [8]u8 = @bitCast(n);
-
-            for (nonce[4..], 0..) |*dst, i| {
-                dst.* = if (C == ChaCha20Poly1305)
-                    n_bytes[i]
-                else
-                    n_bytes[n_bytes.len - i - 1];
-            }
-
             var tag: [tag_length]u8 = undefined;
             @memcpy(tag[0..], ciphertext[ciphertext.len - tag_length .. ciphertext.len]);
             try Cipher_.decrypt(plaintext[0 .. ciphertext.len - tag_length], ciphertext[0 .. ciphertext.len - tag_length], tag, ad, nonce, k);
@@ -229,19 +231,26 @@ fn Cipher(comptime C: type) type {
         fn rekey(k: [key_length]u8) ![32]u8 {
             var plaintext: [32]u8 = undefined;
             var ciphertext: [48]u8 = undefined;
-            const enc = try encrypt(&ciphertext, k, std.math.maxInt(u64), &[_]u8{}, &[_]u8{0} ** 32);
+
+            const enc = try encrypt(
+                &ciphertext,
+                k,
+                [_]u8{std.math.maxInt(u8)} ** 12,
+                &[_]u8{},
+                &[_]u8{0} ** 32,
+            );
             @memcpy(&plaintext, enc[0..32]);
             return plaintext;
         }
     };
 }
 
-fn testCipher(comptime C: type) !void {
+fn testCipher(comptime C: []const u8) !void {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{69} ** 32;
-    var sender = CipherState_(C).init(key);
-    var receiver = CipherState_(C).init(key);
+    var sender = CipherState.init(C, key);
+    var receiver = CipherState.init(C, key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
@@ -257,13 +266,13 @@ fn testCipher(comptime C: type) !void {
 }
 
 test "cipherstate consistency" {
-    _ = try testCipher(ChaCha20Poly1305);
-    _ = try testCipher(Aes256Gcm);
+    _ = try testCipher("ChaChaPoly");
+    _ = try testCipher("AESGCM");
 }
 
 test "failed encryption returns plaintext" {
     const key = [_]u8{0} ** 32;
-    var sender = CipherState_(ChaCha20Poly1305).init(key);
+    var sender = CipherState.init("ChaChaPoly", key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
@@ -275,8 +284,8 @@ test "failed encryption returns plaintext" {
 
 test "encryption fails on max nonce" {
     const key = [_]u8{1} ** 32;
-    var sender = CipherState_(ChaCha20Poly1305).init(key);
-    sender.n = std.math.maxInt(u64);
+    var sender = CipherState.init("ChaChaPoly", key);
+    sender.chacha.n = std.math.maxInt(u64);
 
     const retval = sender.encryptWithAd("", "", "");
     try testing.expectError(error.NonceExhaustion, retval);
@@ -286,7 +295,7 @@ test "rekey" {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{1} ** 32;
-    var sender = CipherState_(ChaCha20Poly1305).init(key);
+    var sender = CipherState.init("ChaChaPoly", key);
 
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
