@@ -84,33 +84,20 @@ test "snow" {
     const data = try std.json.parseFromSlice(Vectors, allocator, buf[0..], .{});
     defer data.deinit();
 
-    const wanted_patterns = [_][]const u8{
-        "N",
-        "K",
-        "X",
-        "NN",
-        "NK",
-        "NX",
-        "KN",
-        "KK",
-        "KX",
-        "IN",
-        "IK",
-        "IX",
-        "XN",
-        "XX",
-        "XK",
-    };
-    // const wanted_patterns = [_][]const u8{ "XN", "XX", "XK" };
+    // const wanted_patterns = [_][]const u8{ "N", "K", "X", "NN", "NK", "N1K", "NX", "KN", "KK", "KX", "IN", "IK", "IX", "XN", "XX", "XK" };
+    // TODO: fix these patterns as well as add psk
+    const wanted_patterns = [_][]const u8{ "KX1", "K1X1" };
 
+    std.debug.print("Found {} total vectors\n", .{data.value.vectors.len});
     std.debug.print("\n\n", .{});
+    var i: usize = 0;
     for (data.value.vectors) |vector| {
         const protocol = protocolFromName(vector.protocol_name);
 
-        var should_test = false;
+        var should_test = true;
         for (wanted_patterns) |p| {
             if (std.mem.eql(u8, protocol.pattern, p)) {
-                should_test = true;
+                should_test = false;
             }
         }
         if (!should_test) continue;
@@ -149,7 +136,6 @@ test "snow" {
         if (vector.resp_remote_static) |rs| {
             _ = try std.fmt.hexToBytes(&resp_pk_rs.?, rs);
         }
-
         var resp_prologue_buf: [100]u8 = undefined;
         const resp_prologue = try std.fmt.hexToBytes(&resp_prologue_buf, vector.resp_prologue);
         var responder = try HandshakeState.init(
@@ -171,10 +157,10 @@ test "snow" {
         defer send_buf.deinit();
         defer recv_buf.deinit();
 
-        for (vector.messages, 0..) |m, i| {
-            std.debug.print("\n***** Testing message {} *****\n", .{i});
-            var sender = if (i % 2 == 0) &initiator else &responder;
-            var receiver = if (i % 2 == 0) &responder else &initiator;
+        for (vector.messages, 0..) |m, j| {
+            std.debug.print("\n***** Testing message {} *****\n", .{j});
+            var sender = if (j % 2 == 0) &initiator else &responder;
+            var receiver = if (j % 2 == 0) &responder else &initiator;
             std.debug.print("sender is initiator? {} \n", .{sender.is_initiator});
 
             var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
@@ -184,12 +170,12 @@ test "snow" {
             var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             var expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
 
-            std.debug.print("Comparing send buf for message {}...\n", .{i});
+            std.debug.print("Comparing send buf for message {}...\n", .{j});
             try std.testing.expectEqualSlices(u8, expected, send_buf.items);
 
             expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
             _ = try receiver.readMessage(send_buf.items, &recv_buf);
-            std.debug.print("Comparing recv buf for message {}...\n", .{i});
+            std.debug.print("Comparing recv buf for message {}...\n", .{j});
             try std.testing.expectEqualSlices(u8, expected, recv_buf.items);
 
             send_buf.clearAndFree();
@@ -197,6 +183,7 @@ test "snow" {
             std.debug.print("***** Message all good *****\n", .{});
         }
 
-        std.debug.print("***** Done *****\n", .{});
+        i += 1;
+        std.debug.print("***** Done with vector {} *****\n", .{i});
     }
 }
