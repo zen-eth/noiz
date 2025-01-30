@@ -203,7 +203,7 @@ pub const HandshakeState = struct {
         const pattern = self.message_patterns.items[self.pattern_idx];
         std.debug.print("initiator? {} writeMessage: message[{}]: {any}\n", .{ self.is_initiator, self.pattern_idx, pattern });
         for (pattern) |token| {
-            std.debug.print("writeMessage: token: {}\n", .{token});
+            std.debug.print("token: {any}\n", .{token});
             switch (token) {
                 .e => {
                     //TODO: fix
@@ -234,13 +234,11 @@ pub const HandshakeState = struct {
                     // no-op
                 },
             }
-            std.debug.print("msg.len = {any}\n", .{message.items.len});
         }
 
         var ciphertext: [80]u8 = undefined;
         const h = try self.symmetric_state.encryptAndHash(&ciphertext, payload);
-        try message.appendSlice(h);
-        std.debug.print("msg.len = {any}\n", .{message.items.len});
+        try message.appendSlice(ciphertext[0..h.len]);
         self.pattern_idx += 1;
         if (self.pattern_idx == self.message_patterns.items.len) return try self.symmetric_state.split();
 
@@ -250,9 +248,7 @@ pub const HandshakeState = struct {
     pub fn readMessage(self: *Self, message: []const u8, payload_buf: *ArrayList(u8)) !?struct { CipherState, CipherState } {
         var msg_idx: usize = 0;
         const pattern = self.message_patterns.items[self.pattern_idx];
-        std.debug.print("readMessage: message[{}] {any}\n", .{ self.pattern_idx, pattern });
         for (pattern) |token| {
-            std.debug.print("readMessage: token = {any}\n", .{token});
             switch (token) {
                 .e => {
                     //std.debug.assert(self.re == null);

@@ -53,12 +53,6 @@ pub const CipherState = union(enum) {
         }
     }
 
-    pub fn deinit(self: *CipherState) void {
-        switch (self.*) {
-            .chacha => return self.chacha.deinit(),
-            .aesgcm => return self.aesgcm.deinit(),
-        }
-    }
     /// Returns true if `k` is non-empty, false otherwise.
     pub fn hasKey(self: *CipherState) bool {
         switch (self.*) {
@@ -110,7 +104,7 @@ fn CipherState_(comptime C: type) type {
         fn encryptWithAd(self: *Self, ciphertext: []u8, ad: []const u8, plaintext: []const u8) CipherError![]const u8 {
             if (!self.hasKey()) {
                 @memcpy(ciphertext[0..plaintext.len], plaintext);
-                return plaintext;
+                return ciphertext[0..plaintext.len];
             }
             if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
@@ -146,10 +140,6 @@ fn CipherState_(comptime C: type) type {
 
         fn tagLength(_: *Self) usize {
             return Cipher_.tag_length;
-        }
-
-        pub fn deinit(self: *Self) void {
-            _ = self;
         }
     };
 }
@@ -188,9 +178,9 @@ fn Cipher(comptime C: type) type {
 
             for (nonce[nonce_length - @sizeOf(@TypeOf(n)) .. nonce_length], 0..) |*dst, i| {
                 dst.* = if (C == ChaCha20Poly1305)
-                    n_bytes[n_bytes.len - i - 1]
+                    n_bytes[i]
                 else
-                    n_bytes[i];
+                    n_bytes[n_bytes.len - i - 1];
             }
             Cipher_.encrypt(ciphertext[0..plaintext.len], tag[0..], plaintext, ad, nonce, k);
 
@@ -213,9 +203,9 @@ fn Cipher(comptime C: type) type {
 
             for (nonce[4..], 0..) |*dst, i| {
                 dst.* = if (C == ChaCha20Poly1305)
-                    n_bytes[n_bytes.len - i - 1]
+                    n_bytes[i]
                 else
-                    n_bytes[i];
+                    n_bytes[n_bytes.len - i - 1];
             }
 
             var tag: [tag_length]u8 = undefined;

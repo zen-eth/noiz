@@ -84,8 +84,24 @@ test "snow" {
     const data = try std.json.parseFromSlice(Vectors, allocator, buf[0..], .{});
     defer data.deinit();
 
-    // const wanted_patterns = [_][]const u8{ "N", "K", "X", "NN", "NK", "NX", "KN", "KK", "IN", "IK", "IX" };
-    const wanted_patterns = [_][]const u8{"XN"};
+    const wanted_patterns = [_][]const u8{
+        "N",
+        "K",
+        "X",
+        "NN",
+        "NK",
+        "NX",
+        "KN",
+        "KK",
+        "KX",
+        "IN",
+        "IK",
+        "IX",
+        "XN",
+        "XX",
+        "XK",
+    };
+    // const wanted_patterns = [_][]const u8{ "XN", "XX", "XK" };
 
     std.debug.print("\n\n", .{});
     for (data.value.vectors) |vector| {
@@ -156,10 +172,10 @@ test "snow" {
         defer recv_buf.deinit();
 
         for (vector.messages, 0..) |m, i| {
-            std.debug.print("Testing message {}\n", .{i});
+            std.debug.print("\n***** Testing message {} *****\n", .{i});
             var sender = if (i % 2 == 0) &initiator else &responder;
             var receiver = if (i % 2 == 0) &responder else &initiator;
-            std.debug.print("sender is initiator? {} receiver? {} \n", .{ sender.is_initiator, receiver.is_initiator });
+            std.debug.print("sender is initiator? {} \n", .{sender.is_initiator});
 
             var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
@@ -167,14 +183,18 @@ test "snow" {
 
             var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             var expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
+
+            std.debug.print("Comparing send buf for message {}...\n", .{i});
             try std.testing.expectEqualSlices(u8, expected, send_buf.items);
 
             expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
             _ = try receiver.readMessage(send_buf.items, &recv_buf);
+            std.debug.print("Comparing recv buf for message {}...\n", .{i});
             try std.testing.expectEqualSlices(u8, expected, recv_buf.items);
 
             send_buf.clearAndFree();
             recv_buf.clearAndFree();
+            std.debug.print("***** Message all good *****\n", .{});
         }
 
         std.debug.print("***** Done *****\n", .{});

@@ -180,8 +180,7 @@ pub const SymmetricState = struct {
 
         self.ck = output[0];
         var temp_k: [32]u8 = undefined;
-        @memcpy(&temp_k, output[1].slice()[0..32]);
-        self.cipher_state.deinit();
+        @memcpy(&temp_k, output[1].constSlice()[0..32]);
         self.cipher_state = CipherState.init(&self.cipher_choice, temp_k);
     }
 
