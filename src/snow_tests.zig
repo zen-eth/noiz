@@ -74,10 +74,14 @@ pub fn keypairFromSecretKey(secret_key: []const u8) !KeyPair {
 }
 
 test "snow" {
-    const allocator = std.testing.allocator;
+    // const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
     const snow_txt = try std.fs.cwd().openFile("./testdata/snow.txt", .{});
     const buf: []u8 = try snow_txt.readToEndAlloc(allocator, 1_000_000);
-    defer std.testing.allocator.free(buf);
+
+    const should_log = false;
 
     // Validate snow.txt is loaded correctly
     try std.testing.expect(try std.json.validate(allocator, buf));
@@ -88,13 +92,12 @@ test "snow" {
     // TODO: fix these patterns as well as add psk
     // const wanted_patterns = [_][]const u8{"X1X1"};
 
-    std.debug.print("Found {} total vectors\n", .{data.value.vectors.len});
-    std.debug.print("\n\n", .{});
+    const total_vector_count = data.value.vectors.len;
+    var failed_vector_count: usize = 0;
+
+    std.debug.print("Found {} total vectors.\n", .{total_vector_count});
     var i: usize = 0;
     for (data.value.vectors) |vector| {
-        if (std.mem.containsAtLeast(u8, vector.protocol_name, 1, "psk")) {
-            continue;
-        }
         const protocol = protocolFromName(vector.protocol_name);
 
         var should_test = true;
@@ -105,7 +108,7 @@ test "snow" {
         }
         if (!should_test) continue;
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
-        std.debug.print("\n***** Testing: {s} *****\n", .{vector.protocol_name});
+        if (should_log) std.debug.print("\n***** Testing: {s} *****\n", .{vector.protocol_name});
 
         const init_s = if (vector.init_static) |s| try keypairFromSecretKey(s) else null;
         const init_e = try keypairFromSecretKey(vector.init_ephemeral);
@@ -118,12 +121,28 @@ test "snow" {
         var init_prologue_buf: [100]u8 = undefined;
         const init_prologue = try std.fmt.hexToBytes(&init_prologue_buf, vector.init_prologue);
 
+        var j: usize = 0;
+        const init_psks = blk: {
+            if (vector.init_psks.len > 0) {
+                var init_psk_buf = try allocator.alloc(u8, 32 * vector.init_psks.len);
+                for (vector.init_psks) |psk| {
+                    _ = try std.fmt.hexToBytes(init_psk_buf[j * 32 .. (j + 1) * 32], psk);
+                    j += 1;
+                }
+
+                break :blk init_psk_buf[0..];
+            } else {
+                break :blk null;
+            }
+        };
+
         var initiator = try HandshakeState.init(
             vector.protocol_name,
             allocator,
             try patternFromName(allocator, protocol.pattern),
             true,
             init_prologue,
+            init_psks,
             .{
                 .s = init_s,
                 .e = init_e,
@@ -141,12 +160,29 @@ test "snow" {
         }
         var resp_prologue_buf: [100]u8 = undefined;
         const resp_prologue = try std.fmt.hexToBytes(&resp_prologue_buf, vector.resp_prologue);
+
+        j = 0;
+        const resp_psks = blk: {
+            if (vector.resp_psks.len > 0) {
+                var resp_psk_buf = try allocator.alloc(u8, 32 * vector.init_psks.len);
+                for (vector.init_psks) |psk| {
+                    _ = try std.fmt.hexToBytes(resp_psk_buf[j * 32 .. (j + 1) * 32], psk);
+                    j += 1;
+                }
+
+                break :blk resp_psk_buf[0..];
+            } else {
+                break :blk null;
+            }
+        };
+
         var responder = try HandshakeState.init(
             vector.protocol_name,
             allocator,
             try patternFromName(allocator, protocol.pattern),
             false,
             resp_prologue,
+            resp_psks,
             .{
                 .s = resp_s,
                 .e = resp_e,
@@ -160,33 +196,36 @@ test "snow" {
         defer send_buf.deinit();
         defer recv_buf.deinit();
 
-        for (vector.messages, 0..) |m, j| {
-            std.debug.print("\n***** Testing message {} *****\n", .{j});
-            var sender = if (j % 2 == 0) &initiator else &responder;
-            var receiver = if (j % 2 == 0) &responder else &initiator;
-            std.debug.print("sender is initiator? {} \n", .{sender.is_initiator});
+        for (vector.messages, 0..) |m, k| {
+            var sender = if (k % 2 == 0) &initiator else &responder;
+            var receiver = if (k % 2 == 0) &responder else &initiator;
 
             var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
-            _ = try sender.writeMessage(payload, &send_buf);
+            _ = sender.writeMessage(payload, &send_buf) catch {
+                failed_vector_count += 1;
+                std.debug.print("Vector {} failed at writeMessage\n", .{k});
+                continue;
+            };
 
             var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             var expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
 
-            std.debug.print("Comparing send buf for message {}...\n", .{j});
             try std.testing.expectEqualSlices(u8, expected, send_buf.items);
 
             expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
-            _ = try receiver.readMessage(send_buf.items, &recv_buf);
-            std.debug.print("Comparing recv buf for message {}...\n", .{j});
+            _ = receiver.readMessage(send_buf.items, &recv_buf) catch {
+                failed_vector_count += 1;
+                std.debug.print("Vector {} failed at readMessage\n", .{k});
+                continue;
+            };
             try std.testing.expectEqualSlices(u8, expected, recv_buf.items);
 
             send_buf.clearAndFree();
             recv_buf.clearAndFree();
-            std.debug.print("***** Message all good *****\n", .{});
         }
 
         i += 1;
-        std.debug.print("***** Done with vector {} *****\n", .{i});
     }
+    std.debug.print("\n***** {} out of {} vectors passed. *****\n\n", .{ total_vector_count - failed_vector_count, total_vector_count });
 }

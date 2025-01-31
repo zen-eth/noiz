@@ -82,7 +82,7 @@ pub fn Hash(comptime H: type) type {
             errdefer allocator.free(&output2);
             if (num_outputs == 2) return .{ output1, output2, null };
             const bytes2 = [_]u8{0x03};
-            const data2 = try std.mem.concat(allocator, u8, &[_][]const u8{ &output1, &bytes2 });
+            const data2 = try std.mem.concat(allocator, u8, &[_][]const u8{ &output2, &bytes2 });
             defer allocator.free(data2);
             const output3 = try hmacHash(&temp_key, data2);
             errdefer allocator.free(&output3);

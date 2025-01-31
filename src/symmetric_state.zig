@@ -92,8 +92,7 @@ pub const SymmetricState = struct {
             ?BoundedArray(u8, 64),
         } {
             std.debug.assert(chaining_key.len == self.len);
-            std.debug.assert(input_key_material.len == 0 or
-                input_key_material.len == 32);
+            std.debug.assert(input_key_material.len == 0 or input_key_material.len == 32);
 
             var out1 = try BoundedArray(u8, 64).init(0);
             var out2 = try BoundedArray(u8, 64).init(0);
@@ -192,13 +191,14 @@ pub const SymmetricState = struct {
 
     /// Used for pre-shared symmetric key (or PSK) mode to support protocols where both parties
     /// have a 32-byte shared secret key.
-    pub fn mixKeyAndHash(self: *Self, input_key_material: []const u8) void {
-        const output = self.hasher.HKDF(self.allocator, self.ck.slice(), input_key_material, 2);
+    pub fn mixKeyAndHash(self: *Self, input_key_material: []const u8) !void {
+        const output = try self.hasher.HKDF(self.allocator, self.ck.constSlice(), input_key_material, 3);
 
         self.ck = output[0];
-        self.mixHash(output[1]);
-        const temp_k = if (self.hashlen == 64) output[2][0..32] else output[1];
-        self.cipher_state.init(temp_k);
+        try self.mixHash(output[1].constSlice());
+        var temp_k: [32]u8 = undefined;
+        @memcpy(&temp_k, output[2].?.constSlice()[0..32]);
+        self.cipher_state = CipherState.init(&self.cipher_choice, temp_k);
     }
 
     pub fn encryptAndHash(self: *Self, ciphertext: []u8, plaintext: []const u8) ![]const u8 {

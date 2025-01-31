@@ -101,29 +101,23 @@ message_patterns: ArrayList(MessagePattern),
 pub const HandshakePattern = @This();
 
 pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !HandshakePattern {
-    const hs_pattern_name_en = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name);
+    var hs_pattern_name_en = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name);
 
     var modifier_it: std.mem.SplitIterator(u8, .any) = undefined;
     if (hs_pattern_name_en == null) {
-        std.debug.print("name = {s}\n", .{hs_pattern_name});
         var modifier_str: []const u8 = undefined;
         for (1..hs_pattern_name.len) |i| {
-            const foo = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name[0 .. hs_pattern_name.len - i]);
-            std.debug.print("foo = {any}\n", .{foo});
+            const pattern = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name[0 .. hs_pattern_name.len - i]);
 
-            if (foo) |_| {
+            if (pattern) |_| {
                 modifier_str = hs_pattern_name[hs_pattern_name.len - i .. hs_pattern_name.len];
+                hs_pattern_name_en = pattern;
                 break;
             }
         }
-        std.debug.print("foo = {s}\n", .{modifier_str});
         modifier_it = std.mem.splitAny(u8, modifier_str, "+");
     }
 
-    std.debug.print("pattern = {any}\n", .{hs_pattern_name_en});
-    // _ = hs_pattern_name;
-    // const hs_pattern_name_en: HandshakePatternName = .XXone;
-    //
     var handshake_pattern: HandshakePattern = HandshakePattern{
         .message_patterns = ArrayList(MessagePattern).init(allocator),
     };
@@ -374,7 +368,6 @@ pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !Hands
                 &[_]MessageToken{ .e, .ee, .s },
                 &[_]MessageToken{ .es, .s, .se },
             };
-            std.debug.print("WHAT {any}\n", .{patterns});
 
             try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
@@ -481,8 +474,30 @@ pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !Hands
             try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
     }
+    while (modifier_it.next()) |m| {
+        if (std.mem.containsAtLeast(u8, m, 1, "psk")) {
+            const num = try std.fmt.parseInt(usize, m["psk".len .. "psk".len + 1], 10);
 
-    std.debug.print("hs pattern = {}\n", .{handshake_pattern});
+            if (num == 0) {
+                const original_pattern = handshake_pattern.message_patterns.items[num];
+                var new_pattern = try std.ArrayList(MessageToken).initCapacity(allocator, original_pattern.len + 1);
+
+                try new_pattern.append(.psk);
+                try new_pattern.appendSlice(original_pattern);
+                handshake_pattern.message_patterns.items[num] = try new_pattern.toOwnedSlice();
+                new_pattern.deinit();
+            } else {
+                const original_pattern = handshake_pattern.message_patterns.items[num - 1];
+                var new_pattern = try std.ArrayList(MessageToken).initCapacity(allocator, original_pattern.len + 1);
+
+                try new_pattern.appendSlice(original_pattern);
+                try new_pattern.append(.psk);
+                handshake_pattern.message_patterns.items[num - 1] = try new_pattern.toOwnedSlice();
+                new_pattern.deinit();
+            }
+        }
+    }
+
     return handshake_pattern;
 }
 

@@ -2,6 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
+const builtin = @import("builtin");
+
 const SymmetricState = @import("symmetric_state.zig").SymmetricState;
 const HandshakePatternName = @import("handshake_pattern.zig").HandshakePatternName;
 const HandshakePattern = @import("handshake_pattern.zig").HandshakePattern;
@@ -26,6 +28,9 @@ const Hash_Functions = [_][]const u8{ "Sha256", "Sha512", "Blake2s256", "Blake2b
 const CipherState = @import("./cipher.zig").CipherState;
 const Cipher = @import("./cipher.zig").Cipher;
 const Hash = @import("hash.zig").Hash;
+
+//Noise provides a pre-shared symmetric key or PSK mode to support protocols where both parties have a 32-byte shared secret key.
+const PSK_SIZE = 32;
 
 pub fn keypairFromSecretKey(secret_key: []const u8) !dh.KeyPair {
     var sk: [32]u8 = undefined;
@@ -100,6 +105,8 @@ pub const HandshakeState = struct {
     /// re: The remote party's ephemeral public key
     re: ?[dh.KeyPair.public_length]u8 = null,
 
+    psks: ?[]const u8 = null,
+
     /// A party can either be the initiator or the responder.
     /// This is true if `Self` is the intiator.
     is_initiator: bool,
@@ -107,6 +114,7 @@ pub const HandshakeState = struct {
     message_patterns: ArrayList(MessagePattern),
 
     pattern_idx: usize = 0,
+    psk_idx: usize = 0,
 
     symmetric_state: SymmetricState,
 
@@ -134,6 +142,7 @@ pub const HandshakeState = struct {
         handshake_pattern: HandshakePattern,
         is_initiator: bool,
         prologue: []const u8,
+        psks: ?[]const u8,
         keys: Keys,
     ) !Self {
         var sym = try SymmetricState.init(allocator, protocol_name);
@@ -147,7 +156,9 @@ pub const HandshakeState = struct {
 
                 switch (i) {
                     .s => try sym.mixHash(key_s),
-                    .e => try sym.mixHash(key_e),
+                    .e => {
+                        try sym.mixHash(key_e);
+                    },
                     else => @panic(""),
                 }
             }
@@ -155,8 +166,10 @@ pub const HandshakeState = struct {
                 const key_rs = keys.rs.?[0..];
                 switch (r) {
                     .s => try sym.mixHash(key_rs),
-                    .e => if (keys.re) |re| {
-                        try sym.mixHash(&re);
+                    .e => {
+                        if (keys.re) |re| {
+                            try sym.mixHash(&re);
+                        }
                     },
                     else => @panic(""),
                 }
@@ -168,7 +181,11 @@ pub const HandshakeState = struct {
                 const key_re = if (keys.re) |re| re[0..] else null;
                 switch (i) {
                     .s => if (key_rs) |rs| try sym.mixHash(rs),
-                    .e => if (key_re) |re| try sym.mixHash(re),
+                    .e => {
+                        if (key_re) |re| {
+                            try sym.mixHash(re);
+                        }
+                    },
                     else => @panic(""),
                 }
             }
@@ -178,7 +195,9 @@ pub const HandshakeState = struct {
 
                 switch (r) {
                     .s => try sym.mixHash(key_s),
-                    .e => try sym.mixHash(key_e),
+                    .e => {
+                        try sym.mixHash(key_e);
+                    },
                     else => @panic(""),
                 }
             }
@@ -193,22 +212,24 @@ pub const HandshakeState = struct {
             .rs = keys.rs,
             .re = keys.re,
             .is_initiator = is_initiator,
+            .psks = psks,
         };
     }
 
     pub fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState, CipherState } {
         const pattern = self.message_patterns.items[self.pattern_idx];
-        // std.debug.print("initiator? {} writeMessage: message[{}]: {any}\n", .{ self.is_initiator, self.pattern_idx, pattern });
-        std.debug.print("pattern: {any}\n", .{pattern});
         for (pattern) |token| {
             switch (token) {
                 .e => {
-                    //TODO: fix
-                    // const keypair = try dh.DH().generateKeypair(null);
-                    // self.e = keypair;
+                    if (!builtin.is_test) {
+                        const keypair = try dh.DH().generateKeypair(null);
+                        self.e = keypair;
+                    }
                     const pubkey = self.e.?.inner.public_key;
                     try message.appendSlice(&pubkey);
                     try self.symmetric_state.mixHash(&pubkey);
+
+                    if (self.psks) |_| try self.symmetric_state.mixKey(&pubkey);
                 },
                 .s => {
                     var ciphertext: [48]u8 = undefined;
@@ -229,11 +250,13 @@ pub const HandshakeState = struct {
                 .ss => try self.symmetric_state.mixKey(&try self.s.?.DH(self.rs.?)),
                 .psk => {
                     // no-op
+                    try self.symmetric_state.mixKeyAndHash(self.psks.?[self.psk_idx * PSK_SIZE .. (self.psk_idx + 1) * PSK_SIZE]);
+                    self.psk_idx += 1;
                 },
             }
         }
 
-        var ciphertext: [80]u8 = undefined;
+        var ciphertext: [100]u8 = undefined;
         const h = try self.symmetric_state.encryptAndHash(&ciphertext, payload);
         try message.appendSlice(ciphertext[0..h.len]);
         self.pattern_idx += 1;
@@ -248,11 +271,14 @@ pub const HandshakeState = struct {
         for (pattern) |token| {
             switch (token) {
                 .e => {
-                    //std.debug.assert(self.re == null);
-                    // self.re = undefined;
+                    if (!builtin.is_test) {
+                        std.debug.assert(self.re == null);
+                        self.re = undefined;
+                    }
                     @memcpy(self.re.?[0..], message[msg_idx .. msg_idx + dh.KeyPair.DHLEN]);
                     try self.symmetric_state.mixHash(&self.re.?);
 
+                    if (self.psks) |_| try self.symmetric_state.mixKey(&self.re.?);
                     msg_idx += dh.KeyPair.DHLEN;
                 },
                 .s => {
@@ -275,6 +301,9 @@ pub const HandshakeState = struct {
                 .ss => try self.symmetric_state.mixKey(&try self.s.?.DH(self.rs.?)),
                 .psk => {
                     // no-op
+                    //
+                    try self.symmetric_state.mixKeyAndHash(self.psks.?[self.psk_idx * PSK_SIZE .. (self.psk_idx + 1) * PSK_SIZE]);
+                    self.psk_idx += 1;
                 },
             }
         }
@@ -291,68 +320,8 @@ pub const HandshakeState = struct {
     pub fn deinit(self: *Self) void {
         self.message_patterns.deinit();
         self.symmetric_state.deinit();
+        if (self.psks) |psks| {
+            self.allocator.free(psks);
+        }
     }
 };
-
-//test "sanity" {
-//    const init_s = try DH().generateKeypair([_]u8{9} ** 32);
-//    const init_rs = (try DH().generateKeypair([_]u8{2} ** 32)).inner.public_key;
-//    // const init_e = try DH().generateKeypair([_]u8{3} ** 32);
-//    const init_re = (try DH().generateKeypair([_]u8{4} ** 32)).inner.public_key;
-//
-//    const protocol_name = "Noise_NN_25519_ChaChaPoly_BLAKE2s";
-//    const pattern_type = "NN";
-//    const pattern = try patternFromName(std.testing.allocator, pattern_type);
-//
-//    std.debug.print("pattern = {}\n", .{pattern});
-//    var initiator_hs = try HandshakeState.init(
-//        protocol_name,
-//        std.testing.allocator,
-//        std.meta.stringToEnum(HandshakePatternName, pattern_type).?,
-//        pattern,
-//        true,
-//        &[_]u8{0},
-//        .{
-//            .s = init_s,
-//            .e = null,
-//            .rs = init_rs,
-//            .re = init_re,
-//        },
-//    );
-//
-//    const resp_s = try DH().generateKeypair([_]u8{5} ** 32);
-//    const resp_rs = (try DH().generateKeypair([_]u8{6} ** 32)).inner.public_key;
-//    const resp_e = try DH().generateKeypair([_]u8{7} ** 32);
-//    const resp_re = (try DH().generateKeypair([_]u8{8} ** 32)).inner.public_key;
-//
-//    std.debug.print("resp_re = {any}\n", .{resp_re});
-//    var responder_hs = try HandshakeState.init(
-//        protocol_name,
-//        std.testing.allocator,
-//        std.meta.stringToEnum(HandshakePatternName, pattern_type).?,
-//        pattern,
-//        false,
-//        &[_]u8{0},
-//        .{
-//            .s = resp_s,
-//            .e = resp_e,
-//            .rs = resp_rs,
-//            .re = resp_re,
-//        },
-//    );
-//
-//    defer initiator_hs.deinit();
-//
-//    var buf = ArrayList(u8).init(std.testing.allocator);
-//    var out = ArrayList(u8).init(std.testing.allocator);
-//    defer buf.deinit();
-//    defer out.deinit();
-//
-//    const message = "hack the planet";
-//
-//    _ = try initiator_hs.writeMessage(message, &buf);
-//    std.debug.print("written buf.items.len = {any}\n", .{buf.items.len});
-//    _ = try responder_hs.readMessage(buf.items, &out);
-//
-//    try std.testing.expectEqualStrings(message, out.items);
-//}
