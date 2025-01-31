@@ -386,8 +386,6 @@ pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !Hands
                 &[_]MessageToken{.se},
             };
 
-            handshake_pattern.pre_message_pattern_initiator = .s;
-            handshake_pattern.pre_message_pattern_responder = .s;
             try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
 
