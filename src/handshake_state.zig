@@ -184,12 +184,9 @@ pub const HandshakeState = struct {
             }
         }
 
-        var message_patterns = try ArrayList(MessagePattern).initCapacity(allocator, handshake_pattern.message_patterns.len);
-        for (handshake_pattern.message_patterns) |p| try message_patterns.append(p);
-
         return .{
             .allocator = allocator,
-            .message_patterns = message_patterns,
+            .message_patterns = handshake_pattern.message_patterns,
             .symmetric_state = sym,
             .s = keys.s,
             .e = keys.e,
@@ -202,8 +199,8 @@ pub const HandshakeState = struct {
     pub fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState, CipherState } {
         const pattern = self.message_patterns.items[self.pattern_idx];
         // std.debug.print("initiator? {} writeMessage: message[{}]: {any}\n", .{ self.is_initiator, self.pattern_idx, pattern });
+        std.debug.print("pattern: {any}\n", .{pattern});
         for (pattern) |token| {
-            std.debug.print("token: {any}\n", .{token});
             switch (token) {
                 .e => {
                     //TODO: fix

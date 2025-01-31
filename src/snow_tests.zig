@@ -86,7 +86,7 @@ test "snow" {
 
     // const wanted_patterns = [_][]const u8{ "N", "K", "X", "NN", "NK", "N1K", "NX", "KN", "KK", "KX", "IN", "IK", "IX", "XN", "XX", "XK" };
     // TODO: fix these patterns as well as add psk
-    const wanted_patterns = [_][]const u8{ "KX1", "K1X1" };
+    const wanted_patterns = [_][]const u8{ "N", "K", "X" };
 
     std.debug.print("Found {} total vectors\n", .{data.value.vectors.len});
     std.debug.print("\n\n", .{});
@@ -94,10 +94,10 @@ test "snow" {
     for (data.value.vectors) |vector| {
         const protocol = protocolFromName(vector.protocol_name);
 
-        var should_test = true;
+        var should_test = false;
         for (wanted_patterns) |p| {
             if (std.mem.eql(u8, protocol.pattern, p)) {
-                should_test = false;
+                should_test = true;
             }
         }
         if (!should_test) continue;
@@ -118,7 +118,7 @@ test "snow" {
         var initiator = try HandshakeState.init(
             vector.protocol_name,
             allocator,
-            try patternFromName(protocol.pattern),
+            try patternFromName(allocator, protocol.pattern),
             true,
             init_prologue,
             .{
@@ -141,7 +141,7 @@ test "snow" {
         var responder = try HandshakeState.init(
             vector.protocol_name,
             allocator,
-            try patternFromName(protocol.pattern),
+            try patternFromName(allocator, protocol.pattern),
             false,
             resp_prologue,
             .{

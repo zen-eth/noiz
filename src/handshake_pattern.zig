@@ -94,39 +94,52 @@ pub const HandshakePatternName = enum {
     I1X1,
 };
 
-pre_message_pattern_initiator: ?PreMessagePattern,
-pre_message_pattern_responder: ?PreMessagePattern,
-message_patterns: []MessagePattern,
+pre_message_pattern_initiator: ?PreMessagePattern = null,
+pre_message_pattern_responder: ?PreMessagePattern = null,
+message_patterns: ArrayList(MessagePattern),
 
 pub const HandshakePattern = @This();
 
-pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
-    const hs_pattern_name_en = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name).?;
-    std.debug.print("pattern = {}\n", .{hs_pattern_name_en});
+pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !HandshakePattern {
+    const hs_pattern_name_en = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name);
+
+    var modifier_it: std.mem.SplitIterator(u8, .any) = undefined;
+    if (hs_pattern_name_en == null) {
+        std.debug.print("name = {s}\n", .{hs_pattern_name});
+        var modifier_str: []const u8 = undefined;
+        for (1..hs_pattern_name.len) |i| {
+            const foo = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name[0 .. hs_pattern_name.len - i]);
+            std.debug.print("foo = {any}\n", .{foo});
+
+            if (foo) |_| {
+                modifier_str = hs_pattern_name[hs_pattern_name.len - i .. hs_pattern_name.len];
+                break;
+            }
+        }
+        std.debug.print("foo = {s}\n", .{modifier_str});
+        modifier_it = std.mem.splitAny(u8, modifier_str, "+");
+    }
+
+    std.debug.print("pattern = {any}\n", .{hs_pattern_name_en});
     // _ = hs_pattern_name;
     // const hs_pattern_name_en: HandshakePatternName = .XXone;
+    //
+    var handshake_pattern: HandshakePattern = HandshakePattern{
+        .message_patterns = ArrayList(MessagePattern).init(allocator),
+    };
 
-    switch (hs_pattern_name_en) {
+    switch (hs_pattern_name_en.?) {
         .N => {
             var patterns: [1]MessagePattern = .{&[_]MessageToken{ .e, .es }};
-
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .NN => {
             var patterns: [2]MessagePattern = .{
                 &[_]MessageToken{.e},
                 &[_]MessageToken{ .e, .ee },
             };
-
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .NK => {
             var patterns: [2]MessagePattern = .{
@@ -134,11 +147,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .NK1 => {
             var patterns: [2]MessagePattern = .{
@@ -146,11 +156,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .es },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .NX => {
             var patterns: [2]MessagePattern = .{
@@ -158,11 +165,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .s, .es },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .NX1 => {
             var patterns: [3]MessagePattern = .{
@@ -171,21 +174,14 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.es},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
 
         .K => {
             var patterns: [1]MessagePattern = .{&[_]MessageToken{ .e, .es, .ss }};
-
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .KN => {
             var patterns: [2]MessagePattern = [_]MessagePattern{
@@ -193,22 +189,18 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .se },
             };
 
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .KK => {
             var patterns: [2]MessagePattern = .{
                 &[_]MessageToken{ .e, .es, .ss },
                 &[_]MessageToken{ .e, .ee, .se },
             };
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .KX => {
             var patterns: [2]MessagePattern = .{
@@ -216,11 +208,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .se, .s, .es },
             };
 
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .K1N => {
             var patterns: [3]MessagePattern = [_]MessagePattern{
@@ -229,11 +218,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.se},
             };
 
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .K1K => {
             var patterns: [3]MessagePattern = .{
@@ -241,22 +227,20 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee },
                 &[_]MessageToken{.se},
             };
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .KK1 => {
             var patterns: [2]MessagePattern = .{
                 &[_]MessageToken{.e},
                 &[_]MessageToken{ .e, .ee, .se, .es },
             };
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .K1K1 => {
             var patterns: [3]MessagePattern = .{
@@ -264,11 +248,10 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .es },
                 &[_]MessageToken{.se},
             };
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .K1X => {
             var patterns: [3]MessagePattern = .{
@@ -276,11 +259,9 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .s, .es },
                 &[_]MessageToken{.se},
             };
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .KX1 => {
             var patterns: [3]MessagePattern = .{
@@ -288,11 +269,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .se, .s },
                 &[_]MessageToken{.es},
             };
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .K1X1 => {
             var patterns: [3]MessagePattern = .{
@@ -300,20 +278,13 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .s },
                 &[_]MessageToken{ .se, .es },
             };
-            return .{
-                .pre_message_pattern_initiator = .s,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .X => {
             var patterns: [1]MessagePattern = .{&[_]MessageToken{ .e, .es, .s, .ss }};
-
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            handshake_pattern.pre_message_pattern_responder = .s;
         },
         .XN => {
             var patterns: [3]MessagePattern = .{
@@ -322,11 +293,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .s, .se },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .X1N => {
             var patterns: [4]MessagePattern = .{
@@ -336,11 +303,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.se},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
 
         .XK => {
@@ -350,11 +313,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .s, .se },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .X1K => {
             var patterns: [4]MessagePattern = .{
@@ -364,11 +324,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.se},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .XK1 => {
             var patterns: [3]MessagePattern = .{
@@ -377,11 +334,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .s, .se },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .X1K1 => {
             var patterns: [4]MessagePattern = .{
@@ -391,11 +345,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.se},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
 
         .XX => {
@@ -405,11 +356,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .s, .se },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .X1X => {
             var patterns: [4]MessagePattern = .{
@@ -419,11 +366,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.se},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .XX1 => {
             var patterns: [3]MessagePattern = .{
@@ -433,11 +376,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
             };
             std.debug.print("WHAT {any}\n", .{patterns});
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .X1X1 => {
             var patterns: [4]MessagePattern = .{
@@ -447,11 +386,9 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.se},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_initiator = .s;
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
 
         .IN => {
@@ -460,11 +397,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .se },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .I1N => {
             var patterns: [3]MessagePattern = .{
@@ -473,11 +406,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.se},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
 
         .IK => {
@@ -486,11 +415,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .se },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .I1K => {
             var patterns: [3]MessagePattern = .{
@@ -499,11 +425,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.se},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .IK1 => {
             var patterns: [2]MessagePattern = .{
@@ -511,11 +434,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .se, .es },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .I1K1 => {
             var patterns: [3]MessagePattern = .{
@@ -524,11 +444,8 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.se},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = .s,
-                .message_patterns = &patterns,
-            };
+            handshake_pattern.pre_message_pattern_responder = .s;
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .IX => {
             var patterns: [2]MessagePattern = .{
@@ -536,11 +453,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .e, .ee, .se, .s, .es },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .I1X => {
             var patterns: [3]MessagePattern = .{
@@ -549,11 +462,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.se},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .IX1 => {
             var patterns: [3]MessagePattern = .{
@@ -562,11 +471,7 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{.es},
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
         .I1X1 => {
             var patterns: [3]MessagePattern = .{
@@ -575,13 +480,12 @@ pub fn patternFromName(hs_pattern_name: []const u8) !HandshakePattern {
                 &[_]MessageToken{ .se, .es },
             };
 
-            return .{
-                .pre_message_pattern_initiator = null,
-                .pre_message_pattern_responder = null,
-                .message_patterns = &patterns,
-            };
+            try handshake_pattern.message_patterns.appendSlice(&patterns);
         },
     }
+
+    std.debug.print("hs pattern = {}\n", .{handshake_pattern});
+    return handshake_pattern;
 }
 
 pub fn isOneWay(name: HandshakePatternName) bool {
