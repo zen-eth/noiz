@@ -23,8 +23,6 @@ pub const HashBlake2b = Hash(Blake2b512);
 ///
 /// https://noiseprotocol.org/noise.html#hash-functions
 pub fn Hash(comptime H: type) type {
-    const _Hash = H;
-
     const HASHLEN = comptime switch (H) {
         Sha256, Blake2s256 => 32,
         Sha512, Blake2b512 => 64,
@@ -51,7 +49,7 @@ pub fn Hash(comptime H: type) type {
         /// Returns an output of `HASHLEN` bytes.
         pub fn hash(input: []const u8) [HASHLEN]u8 {
             var out: [HASHLEN]u8 = undefined;
-            _Hash.hash(input, &out, .{});
+            H.hash(input, &out, .{});
             return out;
         }
 
