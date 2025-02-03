@@ -88,10 +88,6 @@ test "snow" {
     const data = try std.json.parseFromSlice(Vectors, allocator, buf[0..], .{});
     defer data.deinit();
 
-    const wanted_patterns = [_][]const u8{ "N", "K", "X", "NN", "NK", "N1K", "NX", "KN", "KK", "KX", "IN", "IK", "IX", "XN", "XX", "XK", "X1X1" };
-    // TODO: fix these patterns as well as add psk
-    // const wanted_patterns = [_][]const u8{"X1X1"};
-
     const total_vector_count = data.value.vectors.len;
     var failed_vector_count: usize = 0;
 
@@ -100,13 +96,6 @@ test "snow" {
     for (data.value.vectors) |vector| {
         const protocol = protocolFromName(vector.protocol_name);
 
-        var should_test = true;
-        for (wanted_patterns) |p| {
-            if (std.mem.eql(u8, protocol.pattern, p)) {
-                should_test = true;
-            }
-        }
-        if (!should_test) continue;
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
         if (should_log) std.debug.print("\n***** Testing: {s} *****\n", .{vector.protocol_name});
 
