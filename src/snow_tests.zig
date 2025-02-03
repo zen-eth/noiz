@@ -6,7 +6,7 @@ const print = std.debug.print;
 
 const SymmetricState = @import("symmetric_state.zig").SymmetricState;
 
-const KeyPair = @import("dh.zig").KeyPair;
+const DH = @import("dh.zig").DH;
 
 const protocolFromName = @import("symmetric_state.zig").protocolFromName;
 const HandshakeState = @import("handshake_state.zig").HandshakeState;
@@ -23,8 +23,6 @@ const HashSha512 = @import("hash.zig").HashSha512;
 const HashBlake2b = @import("hash.zig").HashBlake2b;
 const HashBlake2s = @import("hash.zig").HashBlake2s;
 const HashChoice = @import("hash.zig").HashChoice;
-
-const DH = @import("dh.zig").DH;
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
@@ -62,12 +60,12 @@ const Vectors = struct {
     vectors: []const Vector,
 };
 
-pub fn keypairFromSecretKey(secret_key: []const u8) !KeyPair {
+pub fn keypairFromSecretKey(secret_key: []const u8) !DH.KeyPair {
     var sk: [32]u8 = undefined;
     _ = try std.fmt.hexToBytes(&sk, secret_key);
     const pk = try std.crypto.dh.X25519.recoverPublicKey(sk);
 
-    return KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
+    return DH.KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
         .public_key = pk,
         .secret_key = sk,
     } };
@@ -96,6 +94,7 @@ test "snow" {
     for (data.value.vectors) |vector| {
         const protocol = protocolFromName(vector.protocol_name);
 
+        // See
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
         if (should_log) std.debug.print("\n***** Testing: {s} *****\n", .{vector.protocol_name});
 

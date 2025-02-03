@@ -10,7 +10,7 @@ const HandshakePattern = @import("handshake_pattern.zig").HandshakePattern;
 const patternFromName = @import("handshake_pattern.zig").patternFromName;
 const MessagePattern = @import("handshake_pattern.zig").MessagePattern;
 
-const dh = @import("dh.zig");
+const DH = @import("dh.zig").DH;
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
@@ -32,12 +32,12 @@ const Hash = @import("hash.zig").Hash;
 //Noise provides a pre-shared symmetric key or PSK mode to support protocols where both parties have a 32-byte shared secret key.
 const PSK_SIZE = 32;
 
-pub fn keypairFromSecretKey(secret_key: []const u8) !dh.KeyPair {
+pub fn keypairFromSecretKey(secret_key: []const u8) !DH.KeyPair {
     var sk: [32]u8 = undefined;
     _ = try std.fmt.hexToBytes(&sk, secret_key);
     const pk = try std.crypto.dh.X25519.recoverPublicKey(sk);
 
-    return dh.KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
+    return DH.KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
         .public_key = pk,
         .secret_key = sk,
     } };
@@ -94,16 +94,16 @@ pub const HandshakeState = struct {
 
     allocator: Allocator,
     /// The local static key pair
-    s: ?dh.KeyPair = null,
+    s: ?DH.KeyPair = null,
 
     /// The local ephemeral key pair
-    e: ?dh.KeyPair = null,
+    e: ?DH.KeyPair = null,
 
     /// rs: The remote party's static public key
-    rs: ?[dh.KeyPair.public_length]u8 = null,
+    rs: ?[DH.KeyPair.public_length]u8 = null,
 
     /// re: The remote party's ephemeral public key
-    re: ?[dh.KeyPair.public_length]u8 = null,
+    re: ?[DH.KeyPair.public_length]u8 = null,
 
     psks: ?[]const u8 = null,
 
@@ -123,16 +123,16 @@ pub const HandshakeState = struct {
 
     const Keys = struct {
         /// The local static key pair
-        s: ?dh.KeyPair = null,
+        s: ?DH.KeyPair = null,
 
         /// The local ephemeral key pair
-        e: ?dh.KeyPair = null,
+        e: ?DH.KeyPair = null,
 
         /// rs: The remote party's static public key
-        rs: ?[dh.KeyPair.public_length]u8 = null,
+        rs: ?[DH.KeyPair.public_length]u8 = null,
 
         /// re: The remote party's ephemeral public key
-        re: ?[dh.KeyPair.public_length]u8 = [_]u8{0} ** 32,
+        re: ?[DH.KeyPair.public_length]u8 = [_]u8{0} ** 32,
     };
 
     /// Initialize(handshake_pattern, initiator, prologue, s, e, rs, re):
@@ -222,7 +222,7 @@ pub const HandshakeState = struct {
             switch (token) {
                 .e => {
                     if (!builtin.is_test) {
-                        const keypair = try dh.DH().generateKeypair(null);
+                        const keypair = try DH.KeyPair.generate(null);
                         self.e = keypair;
                     }
                     const pubkey = self.e.?.inner.public_key;
@@ -275,14 +275,14 @@ pub const HandshakeState = struct {
                         std.debug.assert(self.re == null);
                         self.re = undefined;
                     }
-                    @memcpy(self.re.?[0..], message[msg_idx .. msg_idx + dh.KeyPair.DHLEN]);
+                    @memcpy(self.re.?[0..], message[msg_idx .. msg_idx + DH.KeyPair.DHLEN]);
                     try self.symmetric_state.mixHash(&self.re.?);
 
                     if (self.psks) |_| try self.symmetric_state.mixKey(&self.re.?);
-                    msg_idx += dh.KeyPair.DHLEN;
+                    msg_idx += DH.KeyPair.DHLEN;
                 },
                 .s => {
-                    const len: usize = if (self.symmetric_state.cipher_state.hasKey()) dh.KeyPair.DHLEN + 16 else dh.KeyPair.DHLEN;
+                    const len: usize = if (self.symmetric_state.cipher_state.hasKey()) DH.KeyPair.DHLEN + 16 else DH.KeyPair.DHLEN;
                     const temp = if (self.symmetric_state.cipher_state.hasKey()) message[msg_idx .. msg_idx + len] else message[msg_idx .. msg_idx + len];
 
                     msg_idx += len;
