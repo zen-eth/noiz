@@ -91,7 +91,7 @@ test "snow" {
 
     std.debug.print("Found {} total vectors.\n", .{total_vector_count});
     var i: usize = 0;
-    for (data.value.vectors) |vector| {
+    vector_test: for (data.value.vectors, 0..) |vector, vector_num| {
         const protocol = protocolFromName(vector.protocol_name);
 
         // See
@@ -192,8 +192,8 @@ test "snow" {
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
             _ = sender.writeMessage(payload, &send_buf) catch {
                 failed_vector_count += 1;
-                std.debug.print("Vector {} failed at writeMessage\n", .{k});
-                continue;
+                std.debug.print("Vector \"{s}\" ({}) failed at writeMessage for message {}\n", .{ vector.protocol_name, vector_num + 1, k });
+                continue :vector_test;
             };
 
             var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
@@ -204,8 +204,8 @@ test "snow" {
             expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
             _ = receiver.readMessage(send_buf.items, &recv_buf) catch {
                 failed_vector_count += 1;
-                std.debug.print("Vector {} failed at readMessage\n", .{k});
-                continue;
+                std.debug.print("Vector \"{s}\" ({}) failed at readMessage for message {}\n", .{ vector.protocol_name, vector_num + 1, k });
+                continue :vector_test;
             };
             try std.testing.expectEqualSlices(u8, expected, recv_buf.items);
 
