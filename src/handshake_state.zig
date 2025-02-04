@@ -32,16 +32,6 @@ const Hash = @import("hash.zig").Hash;
 //Noise provides a pre-shared symmetric key or PSK mode to support protocols where both parties have a 32-byte shared secret key.
 const PSK_SIZE = 32;
 
-pub fn keypairFromSecretKey(secret_key: []const u8) !DH.KeyPair {
-    var sk: [32]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&sk, secret_key);
-    const pk = try std.crypto.dh.X25519.recoverPublicKey(sk);
-
-    return DH.KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
-        .public_key = pk,
-        .secret_key = sk,
-    } };
-}
 ///The max message length in bytes.
 ///
 ///See: http://www.noiseprotocol.org/noise.html#message-format
@@ -89,10 +79,24 @@ test "deriveProtocolName" {
     }
 }
 
+/// A party in a Noise handshake can either be the initiator or the responder.
+pub const Role = enum {
+    Initiator,
+    Responder,
+};
+
+/// Represents the handshake state machine maintained by each party during a handshake.
+/// This state machine is in charge of sequentially processing tokens from a `MessagePattern`
+/// for key exchange.
+///
+/// Contains a `SymmetricState` and `DH` variables (s, e, rs, re) and a `HandshakePattern`.
+///
+/// After the handshake phase, this should be deleted (except for the hash value `h`).
 pub const HandshakeState = struct {
     const Self = @This();
 
     allocator: Allocator,
+
     /// The local static key pair
     s: ?DH.KeyPair = null,
 
@@ -108,8 +112,7 @@ pub const HandshakeState = struct {
     psks: ?[]const u8 = null,
 
     /// A party can either be the initiator or the responder.
-    /// This is true if `Self` is the intiator.
-    is_initiator: bool,
+    role: Role,
 
     message_patterns: ArrayList(MessagePattern),
 
@@ -135,12 +138,14 @@ pub const HandshakeState = struct {
         re: ?[DH.KeyPair.public_length]u8 = [_]u8{0} ** 32,
     };
 
-    /// Initialize(handshake_pattern, initiator, prologue, s, e, rs, re):
+    /// Initializes a handshake state machine.
+    ///
+    /// Deinitialize with `deinit`.
     pub fn init(
         protocol_name: []const u8,
         allocator: Allocator,
         handshake_pattern: HandshakePattern,
-        is_initiator: bool,
+        role: Role,
         prologue: []const u8,
         psks: ?[]const u8,
         keys: Keys,
@@ -148,7 +153,7 @@ pub const HandshakeState = struct {
         var sym = try SymmetricState.init(allocator, protocol_name);
         try sym.mixHash(prologue);
 
-        if (is_initiator) {
+        if (role == .Initiator) {
             // The initiator's public key(s) are always hashed first.
             if (handshake_pattern.pre_message_pattern_initiator) |i| {
                 const key_s = keys.s.?.inner.public_key[0..];
@@ -211,11 +216,13 @@ pub const HandshakeState = struct {
             .e = keys.e,
             .rs = keys.rs,
             .re = keys.re,
-            .is_initiator = is_initiator,
+            .role = role,
             .psks = psks,
         };
     }
 
+    /// Fetches and deletes the next message pattern from `message_patterns` and processes each token sequentially from the pattern.
+    /// Aborts if any `encryptAndHash()` calls returns an error.
     pub fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState, CipherState } {
         const pattern = self.message_patterns.items[self.pattern_idx];
         for (pattern) |token| {
@@ -238,12 +245,12 @@ pub const HandshakeState = struct {
                 },
                 .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
                 .es => {
-                    var keypair, const ikm = if (self.is_initiator) .{ self.e, self.rs } else .{ self.s, self.re };
+                    var keypair, const ikm = if (self.role == .Initiator) .{ self.e, self.rs } else .{ self.s, self.re };
                     const dh_out = try keypair.?.DH(ikm.?);
                     try self.symmetric_state.mixKey(&dh_out);
                 },
                 .se => {
-                    var keypair, const ikm = if (self.is_initiator) .{ self.s, self.re } else .{ self.e, self.rs };
+                    var keypair, const ikm = if (self.role == .Initiator) .{ self.s, self.re } else .{ self.e, self.rs };
                     const dh_out = try keypair.?.DH(ikm.?);
                     try self.symmetric_state.mixKey(&dh_out);
                 },
@@ -265,6 +272,9 @@ pub const HandshakeState = struct {
         return null;
     }
 
+    /// Fetches and deletes the next message pattern from `message_patterns` and processes each token sequentially from the pattern.
+    ///
+    /// Aborts if any `decryptAndHash()` calls returns an error.
     pub fn readMessage(self: *Self, message: []const u8, payload_buf: *ArrayList(u8)) !?struct { CipherState, CipherState } {
         var msg_idx: usize = 0;
         const pattern = self.message_patterns.items[self.pattern_idx];
@@ -290,12 +300,12 @@ pub const HandshakeState = struct {
                 },
                 .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
                 .es => {
-                    var keypair = if (self.is_initiator) self.e else self.s;
-                    const ikm = if (self.is_initiator) self.rs else self.re;
+                    var keypair = if (self.role == .Initiator) self.e else self.s;
+                    const ikm = if (self.role == .Initiator) self.rs else self.re;
                     try self.symmetric_state.mixKey(&try keypair.?.DH(ikm.?));
                 },
                 .se => {
-                    var keypair, const ikm = if (self.is_initiator) .{ self.s, self.re } else .{ self.e, self.rs };
+                    var keypair, const ikm = if (self.role == .Initiator) .{ self.s, self.re } else .{ self.e, self.rs };
                     try self.symmetric_state.mixKey(&try keypair.?.DH(ikm.?));
                 },
                 .ss => try self.symmetric_state.mixKey(&try self.s.?.DH(self.rs.?)),
@@ -317,6 +327,7 @@ pub const HandshakeState = struct {
         return null;
     }
 
+    /// Release all allocated memory.
     pub fn deinit(self: *Self) void {
         self.message_patterns.deinit();
         self.symmetric_state.deinit();

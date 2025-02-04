@@ -1,13 +1,14 @@
+//! Contains the implementation for the symmetric state object.
+//!
+//! See: http://www.noiseprotocol.org/noise.html#the-symmetricstate-object
 const std = @import("std");
 
 const BoundedArray = std.BoundedArray;
-
 const Allocator = std.mem.Allocator;
-
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const CipherState = @import("./cipher.zig").CipherState;
 const CipherChoice = @import("./cipher.zig").CipherChoice;
+
 const Hash = @import("hash.zig").Hash;
 const HashSha256 = @import("hash.zig").HashSha256;
 const HashSha512 = @import("hash.zig").HashSha512;
@@ -27,6 +28,7 @@ const Protocol = struct {
     hash: HashChoice,
 };
 
+// Constructs a `Protocol` from a `protocol_name` byte sequence.
 pub fn protocolFromName(protocol_name: []const u8) Protocol {
     var split_it = std.mem.splitScalar(u8, protocol_name, '_');
     _ = split_it.next().?;

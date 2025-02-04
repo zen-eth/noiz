@@ -128,7 +128,7 @@ test "snow" {
             vector.protocol_name,
             allocator,
             try patternFromName(allocator, protocol.pattern),
-            true,
+            .Initiator,
             init_prologue,
             init_psks,
             .{
@@ -168,7 +168,7 @@ test "snow" {
             vector.protocol_name,
             allocator,
             try patternFromName(allocator, protocol.pattern),
-            false,
+            .Responder,
             resp_prologue,
             resp_psks,
             .{

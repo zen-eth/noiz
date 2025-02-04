@@ -1,3 +1,9 @@
+//! Contains the implementation for Noise cipher functions.
+//!
+//! Supports ChaChaPoly and AESGCM ciphers.
+//!
+//! See:
+//! http://www.noiseprotocol.org/noise.html#cipher-functions
 const std = @import("std");
 
 const Aes256Gcm = std.crypto.aead.aes_gcm.Aes256Gcm;
@@ -26,6 +32,7 @@ pub const CipherChoice = enum {
     AESGCM,
 };
 
+/// A `CipherState` can encrypt and decrypt data based on its cipher key `k` and nonce `n`.
 pub const CipherState = union(enum) {
     chacha: CipherState_(ChaCha20Poly1305),
     aesgcm: CipherState_(Aes256Gcm),
