@@ -24,6 +24,9 @@ pub const HashSha512 = Hash(Sha512);
 pub const HashBlake2s = Hash(Blake2s256);
 pub const HashBlake2b = Hash(Blake2b512);
 
+/// The maximum `HASHLEN` that Noise hash functions output.
+pub const MAXHASHLEN = 64;
+
 /// Instantiates a Noise hash function.
 ///
 /// Only these hash functions are supported in accordance with the spec: `Sha256`, `Sha512`, `Blake2s256`, `Blake2b512`.
@@ -32,7 +35,7 @@ pub const HashBlake2b = Hash(Blake2b512);
 pub fn Hash(comptime H: type) type {
     const HASHLEN = comptime switch (H) {
         Sha256, Blake2s256 => 32,
-        Sha512, Blake2b512 => 64,
+        Sha512, Blake2b512 => MAXHASHLEN,
         else => @compileError(std.fmt.comptimePrint("Unsupported hash: {any}", .{H})),
     };
 
@@ -70,7 +73,7 @@ pub fn Hash(comptime H: type) type {
             chaining_key: []const u8,
             input_key_material: []const u8,
             num_outputs: u8,
-        ) !struct { [HASHLEN]u8, [HASHLEN]u8, ?[HASHLEN]u8 } {
+        ) struct { [HASHLEN]u8, [HASHLEN]u8, ?[HASHLEN]u8 } {
             std.debug.assert(chaining_key.len == HASHLEN);
             std.debug.assert(input_key_material.len == 0 or input_key_material.len == 32 or input_key_material.len == HASHLEN);
 
@@ -111,7 +114,7 @@ test "hash" {
     const ck = [_]u8{1} ** 32;
     const ikm = [_]u8{0x0b} ** 32;
     const allocator = std.testing.allocator;
-    const output = try h.HKDF(&ck, &ikm, 3);
+    const output = h.HKDF(&ck, &ikm, 3);
     if (output[2]) |o| {
         errdefer allocator.free(&o);
     }

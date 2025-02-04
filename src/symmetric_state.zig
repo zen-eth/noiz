@@ -10,6 +10,7 @@ const CipherState = @import("./cipher.zig").CipherState;
 const CipherChoice = @import("./cipher.zig").CipherChoice;
 
 const Hash = @import("hash.zig").Hash;
+const MAXHASHLEN = @import("hash.zig").MAXHASHLEN;
 const HashSha256 = @import("hash.zig").HashSha256;
 const HashSha512 = @import("hash.zig").HashSha512;
 const HashBlake2b = @import("hash.zig").HashBlake2b;
@@ -50,8 +51,8 @@ pub const SymmetricState = struct {
     allocator: Allocator,
     cipher_choice: [10]u8,
     cipher_state: CipherState,
-    ck: BoundedArray(u8, 64),
-    h: BoundedArray(u8, 64),
+    ck: BoundedArray(u8, MAXHASHLEN),
+    h: BoundedArray(u8, MAXHASHLEN),
 
     hasher: Hasher,
 
@@ -61,8 +62,8 @@ pub const SymmetricState = struct {
         choice: HashChoice,
         len: usize,
 
-        fn hash(self: *Hasher, input: []const u8) !BoundedArray(u8, 64) {
-            var out = try BoundedArray(u8, 64).init(0);
+        fn hash(self: *Hasher, input: []const u8) !BoundedArray(u8, MAXHASHLEN) {
+            var out = BoundedArray(u8, MAXHASHLEN).init(0) catch unreachable;
             if (self.choice == .SHA256 or self.choice == .BLAKE2s) {
                 const hash_out = switch (self.choice) {
                     .SHA256 => HashSha256.hash(input),
@@ -88,35 +89,35 @@ pub const SymmetricState = struct {
             input_key_material: []const u8,
             num_outputs: u8,
         ) !struct {
-            BoundedArray(u8, 64),
-            BoundedArray(u8, 64),
-            ?BoundedArray(u8, 64),
+            BoundedArray(u8, MAXHASHLEN),
+            BoundedArray(u8, MAXHASHLEN),
+            ?BoundedArray(u8, MAXHASHLEN),
         } {
             std.debug.assert(chaining_key.len == self.len);
             std.debug.assert(input_key_material.len == 0 or input_key_material.len == 32);
 
-            var out1 = try BoundedArray(u8, 64).init(0);
-            var out2 = try BoundedArray(u8, 64).init(0);
-            var out3: ?BoundedArray(u8, 64) = if (num_outputs == 3) try BoundedArray(u8, 64).init(0) else null;
+            var out1 = BoundedArray(u8, MAXHASHLEN).init(0) catch unreachable;
+            var out2 = BoundedArray(u8, MAXHASHLEN).init(0) catch unreachable;
+            var out3: ?BoundedArray(u8, MAXHASHLEN) = if (num_outputs == 3) BoundedArray(u8, MAXHASHLEN).init(0) catch unreachable else null;
 
             if (self.choice == .SHA256) {
-                const hkdf_out = try HashSha256.HKDF(chaining_key, input_key_material, num_outputs);
+                const hkdf_out = HashSha256.HKDF(chaining_key, input_key_material, num_outputs);
                 try out1.appendSlice(&hkdf_out[0]);
                 try out2.appendSlice(&hkdf_out[1]);
                 if (out3) |*o| try o.*.appendSlice(&hkdf_out[2].?);
             } else if (self.choice == .BLAKE2s) {
-                const hkdf_out = try HashBlake2s.HKDF(chaining_key, input_key_material, num_outputs);
+                const hkdf_out = HashBlake2s.HKDF(chaining_key, input_key_material, num_outputs);
                 try out1.appendSlice(&hkdf_out[0]);
                 try out2.appendSlice(&hkdf_out[1]);
                 if (out3) |*o| try o.*.appendSlice(&hkdf_out[2].?);
             } else if (self.choice == .SHA512) {
                 const hkdf_out =
-                    try HashSha512.HKDF(chaining_key, input_key_material, num_outputs);
+                    HashSha512.HKDF(chaining_key, input_key_material, num_outputs);
                 try out1.appendSlice(&hkdf_out[0]);
                 try out2.appendSlice(&hkdf_out[1]);
                 if (out3) |*o| try o.*.appendSlice(&hkdf_out[2].?);
             } else if (self.choice == .BLAKE2b) {
-                const hkdf_out = try HashBlake2b.HKDF(chaining_key, input_key_material, num_outputs);
+                const hkdf_out = HashBlake2b.HKDF(chaining_key, input_key_material, num_outputs);
                 try out1.appendSlice(&hkdf_out[0]);
                 try out2.appendSlice(&hkdf_out[1]);
                 if (out3) |*o| try o.*.appendSlice(&hkdf_out[2].?);
@@ -131,15 +132,15 @@ pub const SymmetricState = struct {
 
         const hash_len: usize = switch (protocol.hash) {
             .SHA256, .BLAKE2s => 32,
-            .SHA512, .BLAKE2b => 64,
+            .SHA512, .BLAKE2b => MAXHASHLEN,
         };
 
         var hasher = Hasher{ .len = hash_len, .choice = protocol.hash };
 
-        var h = try BoundedArray(u8, 64).init(0);
-        var ck = try BoundedArray(u8, 64).init(0);
+        var h = BoundedArray(u8, MAXHASHLEN).init(0) catch unreachable;
+        var ck = BoundedArray(u8, MAXHASHLEN).init(0) catch unreachable;
         if (protocol_name.len <= hash_len) {
-            var data: [64]u8 = undefined;
+            var data: [MAXHASHLEN]u8 = undefined;
             @memcpy(data[0..protocol_name.len], protocol_name[0..protocol_name.len]);
             for (protocol_name.len..hash_len) |i| {
                 data[i] = 0;
@@ -174,7 +175,7 @@ pub const SymmetricState = struct {
         input_key_material: []const u8,
     ) !void {
         // Sets ck, temp_k = HKDF(ck, input_key_material, 2).
-        // If HASHLEN is 64, then truncates temp_k to 32 bytes.
+        // If HASHLEN is MAXHASHLEN, then truncates temp_k to 32 bytes.
         // Calls InitializeKey(temp_k).
         const output = try self.hasher.HKDF(self.ck.constSlice(), input_key_material, 2);
 
@@ -221,7 +222,7 @@ pub const SymmetricState = struct {
     ) !struct { CipherState, CipherState } {
         //
         //    Sets temp_k1, temp_k2 = HKDF(ck, zerolen, 2).
-        //    If HASHLEN is 64, then truncates temp_k1 and temp_k2 to 32 bytes.
+        //    If HASHLEN is MAXHASHLEN, then truncates temp_k1 and temp_k2 to 32 bytes.
         //    Creates two new CipherState objects c1 and c2.
         //    Calls c1.InitializeKey(temp_k1) and c2.InitializeKey(temp_k2).
         //    Returns the pair (c1, c2).
@@ -229,8 +230,8 @@ pub const SymmetricState = struct {
 
         var temp_k1: [32]u8 = undefined;
         var temp_k2: [32]u8 = undefined;
-        if (self.hasher.len == 64) @memcpy(&temp_k1, output[0].slice()[0..32]) else @memcpy(&temp_k1, output[0].slice());
-        if (self.hasher.len == 64) @memcpy(&temp_k2, output[1].slice()[0..32]) else @memcpy(&temp_k2, output[1].slice());
+        if (self.hasher.len == MAXHASHLEN) @memcpy(&temp_k1, output[0].slice()[0..32]) else @memcpy(&temp_k1, output[0].slice());
+        if (self.hasher.len == MAXHASHLEN) @memcpy(&temp_k2, output[1].slice()[0..32]) else @memcpy(&temp_k2, output[1].slice());
 
         const c1 = CipherState.init(&self.cipher_choice, temp_k1);
         const c2 = CipherState.init(&self.cipher_choice, temp_k2);

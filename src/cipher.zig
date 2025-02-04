@@ -9,7 +9,6 @@ const std = @import("std");
 const Aes256Gcm = std.crypto.aead.aes_gcm.Aes256Gcm;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
-const BoundedArray = std.BoundedArray;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 
