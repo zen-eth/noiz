@@ -84,7 +84,6 @@ pub const SymmetricState = struct {
 
         fn HKDF(
             self: *Hasher,
-            allocator: std.mem.Allocator,
             chaining_key: []const u8,
             input_key_material: []const u8,
             num_outputs: u8,
@@ -101,23 +100,23 @@ pub const SymmetricState = struct {
             var out3: ?BoundedArray(u8, 64) = if (num_outputs == 3) try BoundedArray(u8, 64).init(0) else null;
 
             if (self.choice == .SHA256) {
-                const hkdf_out = try HashSha256.HKDF(allocator, chaining_key, input_key_material, num_outputs);
+                const hkdf_out = try HashSha256.HKDF(chaining_key, input_key_material, num_outputs);
                 try out1.appendSlice(&hkdf_out[0]);
                 try out2.appendSlice(&hkdf_out[1]);
                 if (out3) |*o| try o.*.appendSlice(&hkdf_out[2].?);
             } else if (self.choice == .BLAKE2s) {
-                const hkdf_out = try HashBlake2s.HKDF(allocator, chaining_key, input_key_material, num_outputs);
+                const hkdf_out = try HashBlake2s.HKDF(chaining_key, input_key_material, num_outputs);
                 try out1.appendSlice(&hkdf_out[0]);
                 try out2.appendSlice(&hkdf_out[1]);
                 if (out3) |*o| try o.*.appendSlice(&hkdf_out[2].?);
             } else if (self.choice == .SHA512) {
                 const hkdf_out =
-                    try HashSha512.HKDF(allocator, chaining_key, input_key_material, num_outputs);
+                    try HashSha512.HKDF(chaining_key, input_key_material, num_outputs);
                 try out1.appendSlice(&hkdf_out[0]);
                 try out2.appendSlice(&hkdf_out[1]);
                 if (out3) |*o| try o.*.appendSlice(&hkdf_out[2].?);
             } else if (self.choice == .BLAKE2b) {
-                const hkdf_out = try HashBlake2b.HKDF(allocator, chaining_key, input_key_material, num_outputs);
+                const hkdf_out = try HashBlake2b.HKDF(chaining_key, input_key_material, num_outputs);
                 try out1.appendSlice(&hkdf_out[0]);
                 try out2.appendSlice(&hkdf_out[1]);
                 if (out3) |*o| try o.*.appendSlice(&hkdf_out[2].?);
@@ -177,7 +176,7 @@ pub const SymmetricState = struct {
         // Sets ck, temp_k = HKDF(ck, input_key_material, 2).
         // If HASHLEN is 64, then truncates temp_k to 32 bytes.
         // Calls InitializeKey(temp_k).
-        const output = try self.hasher.HKDF(self.allocator, self.ck.constSlice(), input_key_material, 2);
+        const output = try self.hasher.HKDF(self.ck.constSlice(), input_key_material, 2);
 
         self.ck = output[0];
         var temp_k: [32]u8 = undefined;
@@ -194,7 +193,7 @@ pub const SymmetricState = struct {
     /// Used for pre-shared symmetric key (or PSK) mode to support protocols where both parties
     /// have a 32-byte shared secret key.
     pub fn mixKeyAndHash(self: *Self, input_key_material: []const u8) !void {
-        const output = try self.hasher.HKDF(self.allocator, self.ck.constSlice(), input_key_material, 3);
+        const output = try self.hasher.HKDF(self.ck.constSlice(), input_key_material, 3);
 
         self.ck = output[0];
         try self.mixHash(output[1].constSlice());
@@ -226,7 +225,7 @@ pub const SymmetricState = struct {
         //    Creates two new CipherState objects c1 and c2.
         //    Calls c1.InitializeKey(temp_k1) and c2.InitializeKey(temp_k2).
         //    Returns the pair (c1, c2).
-        const output = try self.hasher.HKDF(self.allocator, self.ck.slice(), &[_]u8{}, 2);
+        const output = try self.hasher.HKDF(self.ck.slice(), &[_]u8{}, 2);
 
         var temp_k1: [32]u8 = undefined;
         var temp_k2: [32]u8 = undefined;
@@ -252,7 +251,7 @@ test "init symmetric state" {
     const ck = [_]u8{1} ** 32;
     const ikm = [_]u8{};
     const allocator = std.testing.allocator;
-    const output = try symmetric_state.hasher.HKDF(allocator, &ck, &ikm, 3);
+    const output = try symmetric_state.hasher.HKDF(&ck, &ikm, 3);
     errdefer allocator.free(&output[0]);
 
     defer symmetric_state.deinit();

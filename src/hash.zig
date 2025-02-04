@@ -67,7 +67,6 @@ pub fn Hash(comptime H: type) type {
         /// Returns a pair or triple of byte sequences each of length `HASHLEN`, depending on whether `num_outputs`
         /// is two or three.
         pub fn HKDF(
-            allocator: std.mem.Allocator,
             chaining_key: []const u8,
             input_key_material: []const u8,
             num_outputs: u8,
@@ -77,20 +76,19 @@ pub fn Hash(comptime H: type) type {
 
             const temp_key = hmacHash(chaining_key, input_key_material);
             std.debug.assert(temp_key.len == HASHLEN);
-            errdefer allocator.free(&temp_key);
             const output1 = hmacHash(&temp_key, &[_]u8{0x01});
-            errdefer allocator.free(&output1);
-            const bytes = [_]u8{0x02};
-            const data = try std.mem.concat(allocator, u8, &[_][]const u8{ &output1, &bytes });
-            defer allocator.free(data);
-            const output2 = hmacHash(&temp_key, data);
-            errdefer allocator.free(&output2);
+            var data: [HASHLEN + 1]u8 = undefined;
+
+            @memcpy(data[0..HASHLEN], output1[0..]);
+            data[HASHLEN] = 0x02;
+
+            const output2 = hmacHash(&temp_key, &data);
             if (num_outputs == 2) return .{ output1, output2, null };
-            const bytes2 = [_]u8{0x03};
-            const data2 = try std.mem.concat(allocator, u8, &[_][]const u8{ &output2, &bytes2 });
-            defer allocator.free(data2);
-            const output3 = hmacHash(&temp_key, data2);
-            errdefer allocator.free(&output3);
+
+            data = undefined;
+            @memcpy(data[0..HASHLEN], output2[0..]);
+            data[HASHLEN] = 0x03;
+            const output3 = hmacHash(&temp_key, &data);
 
             return .{ output1, output2, output3 };
         }
@@ -113,9 +111,7 @@ test "hash" {
     const ck = [_]u8{1} ** 32;
     const ikm = [_]u8{0x0b} ** 32;
     const allocator = std.testing.allocator;
-    const output = try h.HKDF(allocator, &ck, &ikm, 3);
-    errdefer allocator.free(&output[0]);
-    errdefer allocator.free(&output[1]);
+    const output = try h.HKDF(&ck, &ikm, 3);
     if (output[2]) |o| {
         errdefer allocator.free(&o);
     }
