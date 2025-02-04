@@ -184,13 +184,19 @@ test "snow" {
         defer send_buf.deinit();
         defer recv_buf.deinit();
 
+        var cipherstate_initiator_enc: CipherState = undefined;
+        var cipherstate_initiator_dec: CipherState = undefined;
+        var cipherstate_responder_enc: CipherState = undefined;
+        var cipherstate_responder_dec: CipherState = undefined;
+
         for (vector.messages, 0..) |m, k| {
             var sender = if (k % 2 == 0) &initiator else &responder;
             var receiver = if (k % 2 == 0) &responder else &initiator;
 
+            // Test handshake phase
             var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
-            _ = sender.writeMessage(payload, &send_buf) catch {
+            const sender_cipherstates = sender.writeMessage(payload, &send_buf) catch {
                 failed_vector_count += 1;
                 std.debug.print("Vector \"{s}\" ({}) failed at writeMessage for message {}\n", .{ vector.protocol_name, vector_num + 1, k });
                 continue :vector_test;
@@ -202,15 +208,61 @@ test "snow" {
             try std.testing.expectEqualSlices(u8, expected, send_buf.items);
 
             expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
-            _ = receiver.readMessage(send_buf.items, &recv_buf) catch {
+            const receiver_cipherstates = receiver.readMessage(send_buf.items, &recv_buf) catch {
                 failed_vector_count += 1;
                 std.debug.print("Vector \"{s}\" ({}) failed at readMessage for message {}\n", .{ vector.protocol_name, vector_num + 1, k });
                 continue :vector_test;
             };
             try std.testing.expectEqualSlices(u8, expected, recv_buf.items);
 
+            if (sender_cipherstates != null and receiver_cipherstates != null) {
+                if (sender_cipherstates) |cs| {
+                    if (k % 2 == 0) {
+                        cipherstate_initiator_enc = cs[0];
+                        cipherstate_responder_enc = cs[1];
+                    } else {
+                        cipherstate_responder_enc = cs[0];
+                        cipherstate_initiator_enc = cs[1];
+                    }
+                }
+
+                if (receiver_cipherstates) |cs| {
+                    if (k % 2 == 0) {
+                        cipherstate_responder_dec = cs[0];
+                        cipherstate_initiator_dec = cs[1];
+                    } else {
+                        cipherstate_initiator_dec = cs[0];
+                        cipherstate_responder_dec = cs[1];
+                    }
+                }
+            }
+
             send_buf.clearAndFree();
             recv_buf.clearAndFree();
+        }
+
+        send_buf.clearAndFree();
+        recv_buf.clearAndFree();
+
+        try send_buf.resize(MAX_MESSAGE_LEN);
+        try recv_buf.resize(MAX_MESSAGE_LEN);
+
+        for (vector.messages, 0..) |m, k| {
+            var sender = if (k % 2 == 0) cipherstate_initiator_enc else cipherstate_responder_enc;
+            var receiver = if (k % 2 == 0) cipherstate_responder_dec else cipherstate_initiator_dec;
+
+            var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
+            const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
+            _ = try sender.encryptWithAd(send_buf.items, &[_]u8{}, payload);
+
+            var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
+            var expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
+            try std.testing.expectEqualSlices(u8, expected, send_buf.items[0..expected.len]);
+
+            expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
+            try recv_buf.resize(send_buf.items.len);
+            _ = try receiver.decryptWithAd(recv_buf.items, &[_]u8{}, send_buf.items);
+            try std.testing.expectEqualSlices(u8, expected, recv_buf.items[0..expected.len]);
         }
 
         i += 1;

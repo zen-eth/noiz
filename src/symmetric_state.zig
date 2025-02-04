@@ -226,12 +226,12 @@ pub const SymmetricState = struct {
         //    Creates two new CipherState objects c1 and c2.
         //    Calls c1.InitializeKey(temp_k1) and c2.InitializeKey(temp_k2).
         //    Returns the pair (c1, c2).
-        const output = try self.hasher.HKDF(self.ck.slice(), &[_]u8{}, 2);
+        const output = try self.hasher.HKDF(self.ck.constSlice(), &[_]u8{}, 2);
 
         var temp_k1: [32]u8 = undefined;
         var temp_k2: [32]u8 = undefined;
-        if (self.hasher.len == MAXHASHLEN) @memcpy(&temp_k1, output[0].slice()[0..32]) else @memcpy(&temp_k1, output[0].slice());
-        if (self.hasher.len == MAXHASHLEN) @memcpy(&temp_k2, output[1].slice()[0..32]) else @memcpy(&temp_k2, output[1].slice());
+        @memcpy(&temp_k1, output[0].constSlice()[0..32]);
+        @memcpy(&temp_k2, output[1].constSlice()[0..32]);
 
         const c1 = CipherState.init(&self.cipher_choice, temp_k1);
         const c2 = CipherState.init(&self.cipher_choice, temp_k2);
