@@ -29,6 +29,11 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
+    const enable_logging = b.option(bool, "log", "Whether to enable logging") orelse false;
+
+    const options = b.addOptions();
+    options.addOption(bool, "enable_logging", enable_logging);
+
     const filters = b.option([]const []const u8, "filter", "filter based on name");
 
     // Creates a step for unit testing. This only builds the test executable
@@ -39,6 +44,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .filters = filters orelse &.{},
     });
+    lib_unit_tests.root_module.addImport("options", options.createModule());
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
