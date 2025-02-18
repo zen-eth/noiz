@@ -36,6 +36,8 @@ const CipherState = @import("./cipher.zig").CipherState;
 const CipherChoice = @import("./cipher.zig").CipherChoice;
 const Hash = @import("hash.zig").Hash;
 
+const options = @import("options");
+
 const Message = struct {
     payload: []const u8,
     ciphertext: []const u8,
@@ -102,7 +104,8 @@ test "snow" {
 
         // See
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
-        if (should_log) std.debug.print("\n***** Testing: {s} *****\n", .{vector.protocol_name});
+
+        if (options.enable_logging) std.debug.print("\n***** Testing: {s} *****\n", .{vector.protocol_name});
 
         const init_s = if (vector.init_static) |s| try keypairFromSecretKey(s) else null;
         const init_e = try keypairFromSecretKey(vector.init_ephemeral);
@@ -281,5 +284,5 @@ test "snow" {
 
         i += 1;
     }
-    std.debug.print("\n***** {} out of {} vectors passed. *****\n\n", .{ total_vector_count - failed_vector_count, total_vector_count });
+    std.debug.print("***** {} out of {} vectors passed. *****\n", .{ total_vector_count - failed_vector_count, total_vector_count });
 }
