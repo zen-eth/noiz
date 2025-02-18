@@ -165,7 +165,7 @@ fn CipherState_(comptime C: type) type {
         pub fn decryptWithAd(self: *Self, plaintext: []u8, ad: []const u8, ciphertext: []const u8, nonce: [Cipher_.nonce_length]u8) CipherError![]const u8 {
             if (!self.hasKey()) {
                 @memcpy(plaintext[0..ciphertext.len], ciphertext);
-                return ciphertext;
+                return plaintext[0..ciphertext.len];
             }
             if (self.n == std.math.maxInt(u64)) return error.NonceExhaustion;
 
