@@ -44,15 +44,16 @@ const Message = struct {
 const Vector = struct {
     protocol_name: []const u8,
     init_prologue: []const u8,
-    init_psks: [][]const u8,
+    init_psks: ?[][]const u8 = null,
     init_ephemeral: []const u8,
     init_remote_static: ?[]const u8 = null,
     init_static: ?[]const u8 = null,
     resp_prologue: []const u8,
-    resp_psks: [][]const u8,
+    resp_psks: ?[][]const u8 = null,
     resp_static: ?[]const u8 = null,
-    resp_ephemeral: []const u8,
+    resp_ephemeral: ?[]const u8 = null,
     resp_remote_static: ?[]const u8 = null,
+    handshake_hash: []const u8,
     messages: []const Message,
 };
 
@@ -76,10 +77,8 @@ test "snow" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-    const snow_txt = try std.fs.cwd().openFile("./testdata/snow.txt", .{});
-    const buf: []u8 = try snow_txt.readToEndAlloc(allocator, 1_000_000);
-
-    const should_log = false;
+    const snow_txt = try std.fs.cwd().openFile("./testdata/cacophony.txt", .{});
+    const buf: []u8 = try snow_txt.readToEndAlloc(allocator, 5_000_000);
 
     // Validate snow.txt is loaded correctly
     try std.testing.expect(try std.json.validate(allocator, buf));
@@ -91,8 +90,15 @@ test "snow" {
 
     std.debug.print("Found {} total vectors.\n", .{total_vector_count});
     var i: usize = 0;
+
     vector_test: for (data.value.vectors, 0..) |vector, vector_num| {
         const protocol = protocolFromName(vector.protocol_name);
+
+        var split = std.mem.splitSequence(u8, protocol.pattern, "psk");
+        const is_one_way = if (std.meta.stringToEnum(HandshakePatternName, split.next().?)) |p|
+            @import("handshake_pattern.zig").isOneWay(p)
+        else
+            false;
 
         // See
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
@@ -111,9 +117,9 @@ test "snow" {
 
         var j: usize = 0;
         const init_psks = blk: {
-            if (vector.init_psks.len > 0) {
-                var init_psk_buf = try allocator.alloc(u8, 32 * vector.init_psks.len);
-                for (vector.init_psks) |psk| {
+            if (vector.init_psks) |psks| {
+                var init_psk_buf = try allocator.alloc(u8, 32 * psks.len);
+                for (psks) |psk| {
                     _ = try std.fmt.hexToBytes(init_psk_buf[j * 32 .. (j + 1) * 32], psk);
                     j += 1;
                 }
@@ -140,7 +146,7 @@ test "snow" {
         defer initiator.deinit();
 
         const resp_s = if (vector.resp_static) |s| try keypairFromSecretKey(s) else null;
-        const resp_e = try keypairFromSecretKey(vector.resp_ephemeral);
+        const resp_e = if (vector.resp_ephemeral) |e| try keypairFromSecretKey(e) else null;
 
         var resp_pk_rs: ?[32]u8 = undefined;
         if (vector.resp_remote_static) |rs| {
@@ -151,9 +157,9 @@ test "snow" {
 
         j = 0;
         const resp_psks = blk: {
-            if (vector.resp_psks.len > 0) {
-                var resp_psk_buf = try allocator.alloc(u8, 32 * vector.init_psks.len);
-                for (vector.init_psks) |psk| {
+            if (vector.resp_psks) |psks| {
+                var resp_psk_buf = try allocator.alloc(u8, 32 * psks.len);
+                for (psks) |psk| {
                     _ = try std.fmt.hexToBytes(resp_psk_buf[j * 32 .. (j + 1) * 32], psk);
                     j += 1;
                 }
@@ -184,12 +190,13 @@ test "snow" {
         defer send_buf.deinit();
         defer recv_buf.deinit();
 
-        var cipherstate_initiator_enc: CipherState = undefined;
-        var cipherstate_initiator_dec: CipherState = undefined;
-        var cipherstate_responder_enc: CipherState = undefined;
-        var cipherstate_responder_dec: CipherState = undefined;
+        var c1init: CipherState = undefined;
+        var c2init: CipherState = undefined;
+        var c1resp: CipherState = undefined;
+        var c2resp: CipherState = undefined;
 
-        for (vector.messages, 0..) |m, k| {
+        var msg_idx: usize = 0;
+        handshake_blk: for (vector.messages, 0..) |m, k| {
             var sender = if (k % 2 == 0) &initiator else &responder;
             var receiver = if (k % 2 == 0) &responder else &initiator;
 
@@ -215,31 +222,29 @@ test "snow" {
             };
             try std.testing.expectEqualSlices(u8, expected, recv_buf.items);
 
+            msg_idx += 1;
             if (sender_cipherstates != null and receiver_cipherstates != null) {
-                if (sender_cipherstates) |cs| {
-                    if (k % 2 == 0) {
-                        cipherstate_initiator_enc = cs[0];
-                        cipherstate_responder_enc = cs[1];
-                    } else {
-                        cipherstate_responder_enc = cs[0];
-                        cipherstate_initiator_enc = cs[1];
-                    }
+                // Only use the cipher states from one side (sender)
+                if (k % 2 == 0) {
+                    // current round sender is initiator
+                    c1init = sender_cipherstates.?[0];
+                    c2init = sender_cipherstates.?[1];
+                    c2resp = receiver_cipherstates.?[0];
+                    c1resp = receiver_cipherstates.?[1];
+                } else {
+                    // current round sender is responder
+                    c1init = receiver_cipherstates.?[0];
+                    c2init = receiver_cipherstates.?[1];
+                    c2resp = sender_cipherstates.?[0];
+                    c1resp = sender_cipherstates.?[1];
                 }
-
-                if (receiver_cipherstates) |cs| {
-                    if (k % 2 == 0) {
-                        cipherstate_responder_dec = cs[0];
-                        cipherstate_initiator_dec = cs[1];
-                    } else {
-                        cipherstate_initiator_dec = cs[0];
-                        cipherstate_responder_dec = cs[1];
-                    }
-                }
+                break :handshake_blk;
             }
-
             send_buf.clearAndFree();
             recv_buf.clearAndFree();
         }
+
+        try std.testing.expectEqualSlices(u8, initiator.getHandshakeHash(), responder.getHandshakeHash());
 
         send_buf.clearAndFree();
         recv_buf.clearAndFree();
@@ -247,12 +252,21 @@ test "snow" {
         try send_buf.resize(MAX_MESSAGE_LEN);
         try recv_buf.resize(MAX_MESSAGE_LEN);
 
-        for (vector.messages, 0..) |m, k| {
-            var sender = if (k % 2 == 0) cipherstate_initiator_enc else cipherstate_responder_enc;
-            var receiver = if (k % 2 == 0) cipherstate_responder_dec else cipherstate_initiator_dec;
-
+        for (msg_idx..vector.messages.len) |k| {
+            const m = vector.messages[k];
+            var sender: *CipherState = undefined;
+            var receiver: *CipherState = undefined;
+            if (is_one_way) {
+                sender = &c1init;
+                receiver = &c2resp;
+            } else {
+                const is_initiator = k % 2 == 0;
+                sender = if (is_initiator) &c1init else &c1resp;
+                receiver = if (is_initiator) &c2resp else &c2init;
+            }
             var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
+
             _ = try sender.encryptWithAd(send_buf.items, &[_]u8{}, payload);
 
             var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
@@ -261,7 +275,7 @@ test "snow" {
 
             expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
             try recv_buf.resize(send_buf.items.len);
-            _ = try receiver.decryptWithAd(recv_buf.items, &[_]u8{}, send_buf.items);
+            _ = try receiver.decryptWithAd(recv_buf.items, &[_]u8{}, send_buf.items[0..(expected.len + 16)]);
             try std.testing.expectEqualSlices(u8, expected, recv_buf.items[0..expected.len]);
         }
 
