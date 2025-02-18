@@ -186,23 +186,14 @@ pub const HandshakeState = struct {
                 const key_re = if (keys.re) |re| re[0..] else null;
                 switch (i) {
                     .s => if (key_rs) |rs| try sym.mixHash(rs),
-                    .e => {
-                        if (key_re) |re| {
-                            try sym.mixHash(re);
-                        }
-                    },
+                    .e => if (key_re) |re| try sym.mixHash(re),
                     else => @panic(""),
                 }
             }
             if (handshake_pattern.pre_message_pattern_responder) |r| {
-                const key_s = keys.s.?.inner.public_key[0..];
-                const key_e = keys.e.?.inner.public_key[0..];
-
                 switch (r) {
-                    .s => try sym.mixHash(key_s),
-                    .e => {
-                        try sym.mixHash(key_e);
-                    },
+                    .s => if (keys.s) |s| try sym.mixHash(s.inner.public_key[0..]),
+                    .e => if (keys.e) |e| try sym.mixHash(e.inner.public_key[0..]),
                     else => @panic(""),
                 }
             }
@@ -236,7 +227,9 @@ pub const HandshakeState = struct {
                     try message.appendSlice(&pubkey);
                     try self.symmetric_state.mixHash(&pubkey);
 
-                    if (self.psks) |_| try self.symmetric_state.mixKey(&pubkey);
+                    if (self.psks) |psks| {
+                        if (psks.len > 0) try self.symmetric_state.mixKey(&pubkey);
+                    }
                 },
                 .s => {
                     var ciphertext: [48]u8 = undefined;
@@ -258,7 +251,7 @@ pub const HandshakeState = struct {
                 .psk => {
                     // no-op
                     try self.symmetric_state.mixKeyAndHash(self.psks.?[self.psk_idx * PSK_SIZE .. (self.psk_idx + 1) * PSK_SIZE]);
-                    self.psk_idx += 1;
+                    // self.psk_idx += 1;
                 },
             }
         }
@@ -288,15 +281,16 @@ pub const HandshakeState = struct {
                     @memcpy(self.re.?[0..], message[msg_idx .. msg_idx + DH.KeyPair.DHLEN]);
                     try self.symmetric_state.mixHash(&self.re.?);
 
-                    if (self.psks) |_| try self.symmetric_state.mixKey(&self.re.?);
+                    if (self.psks) |psks| {
+                        if (psks.len > 0) try self.symmetric_state.mixKey(&self.re.?);
+                    }
                     msg_idx += DH.KeyPair.DHLEN;
                 },
                 .s => {
                     const len: usize = if (self.symmetric_state.cipher_state.hasKey()) DH.KeyPair.DHLEN + 16 else DH.KeyPair.DHLEN;
-                    const temp = if (self.symmetric_state.cipher_state.hasKey()) message[msg_idx .. msg_idx + len] else message[msg_idx .. msg_idx + len];
 
+                    _ = try self.symmetric_state.decryptAndHash(self.rs.?[0..], message[msg_idx .. msg_idx + len]);
                     msg_idx += len;
-                    _ = try self.symmetric_state.decryptAndHash(self.rs.?[0..], temp);
                 },
                 .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
                 .es => {
@@ -313,7 +307,7 @@ pub const HandshakeState = struct {
                     // no-op
                     //
                     try self.symmetric_state.mixKeyAndHash(self.psks.?[self.psk_idx * PSK_SIZE .. (self.psk_idx + 1) * PSK_SIZE]);
-                    self.psk_idx += 1;
+                    // self.psk_idx += 1;
                 },
             }
         }
@@ -325,6 +319,10 @@ pub const HandshakeState = struct {
         if (self.pattern_idx == self.message_patterns.items.len) return try self.symmetric_state.split();
 
         return null;
+    }
+
+    pub fn getHandshakeHash(self: *Self) []const u8 {
+        return self.symmetric_state.h.constSlice();
     }
 
     /// Release all allocated memory.
