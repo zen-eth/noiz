@@ -74,15 +74,15 @@ pub fn keypairFromSecretKey(secret_key: []const u8) !DH.KeyPair {
     } };
 }
 
-test "snow" {
+test "cacophony" {
     // const allocator = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-    const snow_txt = try std.fs.cwd().openFile("./testdata/cacophony.txt", .{});
-    const buf: []u8 = try snow_txt.readToEndAlloc(allocator, 5_000_000);
+    const cacophony_txt = try std.fs.cwd().openFile("./testdata/cacophony.txt", .{});
+    const buf: []u8 = try cacophony_txt.readToEndAlloc(allocator, 5_000_000);
 
-    // Validate snow.txt is loaded correctly
+    // Validate .txt is loaded as json correctly
     try std.testing.expect(try std.json.validate(allocator, buf));
     const data = try std.json.parseFromSlice(Vectors, allocator, buf[0..], .{});
     defer data.deinit();
