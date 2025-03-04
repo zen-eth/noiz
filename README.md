@@ -1,6 +1,6 @@
-# noize
+# noiz
 
-A **work-in-progress** [Noise Protocol Framework](https://noiseprotocol.org/) in Zig.
+**Noiz** (*read as: 'noi-z' or 'noisy'*) is a **work-in-progress** [Noise Protocol Framework](https://noiseprotocol.org/) in Zig.
 
 _WARNING: This library has not been audited_
 
@@ -12,7 +12,7 @@ All cryptographic primitives listed in the [official specification (rev34)](http
 
 ## Test
 
-Noize is built in zig 0.14.0:
+Noiz is built in zig 0.14.0:
 
 To test:
 
