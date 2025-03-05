@@ -75,10 +75,10 @@ pub fn keypairFromSecretKey(secret_key: []const u8) !DH.KeyPair {
 }
 
 test "cacophony" {
-    const allocator = std.testing.allocator;
-    // var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    // defer arena.deinit();
-    // const allocator = arena.allocator();
+    // Use arena allocator to avoid memory leaks
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
     const cacophony_txt = try std.fs.cwd().openFile("./testdata/cacophony.txt", .{});
     defer cacophony_txt.close();
     const buf: []u8 = try cacophony_txt.readToEndAlloc(allocator, 5_000_000);
@@ -124,6 +124,7 @@ test "cacophony" {
         const init_psks = blk: {
             if (vector.init_psks) |psks| {
                 var init_psk_buf = try allocator.alloc(u8, 32 * psks.len);
+                errdefer allocator.free(init_psk_buf);
                 for (psks) |psk| {
                     _ = try std.fmt.hexToBytes(init_psk_buf[j * 32 .. (j + 1) * 32], psk);
                     j += 1;
@@ -135,10 +136,12 @@ test "cacophony" {
             }
         };
 
+        const pattern = try patternFromName(allocator, protocol.pattern);
+        
         var initiator = try HandshakeState.init(
             vector.protocol_name,
             allocator,
-            try patternFromName(allocator, protocol.pattern),
+            pattern,
             .Initiator,
             init_prologue,
             init_psks,
@@ -164,6 +167,7 @@ test "cacophony" {
         const resp_psks = blk: {
             if (vector.resp_psks) |psks| {
                 var resp_psk_buf = try allocator.alloc(u8, 32 * psks.len);
+                errdefer allocator.free(resp_psk_buf);
                 for (psks) |psk| {
                     _ = try std.fmt.hexToBytes(resp_psk_buf[j * 32 .. (j + 1) * 32], psk);
                     j += 1;
@@ -175,10 +179,12 @@ test "cacophony" {
             }
         };
 
+        const resp_pattern = try patternFromName(allocator, protocol.pattern);
+        
         var responder = try HandshakeState.init(
             vector.protocol_name,
             allocator,
-            try patternFromName(allocator, protocol.pattern),
+            resp_pattern,
             .Responder,
             resp_prologue,
             resp_psks,
