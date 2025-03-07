@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const BoundedArray = std.BoundedArray;
 
 pub const MessageToken = enum {
     e,
@@ -12,8 +13,6 @@ pub const MessageToken = enum {
     psk,
 };
 
-pub const MessagePattern = []const MessageToken;
-
 const PreMessagePattern = enum {
     e,
     s,
@@ -22,7 +21,7 @@ const PreMessagePattern = enum {
 };
 
 /// The following handshake patterns represent interactive protocols. These 12 patterns are called the fundamental interactive handshake patterns.
-/// The fundamental interactive patterns are named with two characters, which indicate the status of the initiator and responder's static keys. The first and second characters refer to the initiator's and responder's static key respectively.
+// The fundamental interactive patterns are named with two characters, which indicate the status of the initiator and responder's static keys. The first and second characters refer to the initiator's and responder's static key respectively.
 pub const HandshakePatternName = enum {
     /// N = **N**o static key for recipient
     N,
@@ -96,9 +95,75 @@ pub const HandshakePatternName = enum {
 
 pre_message_pattern_initiator: ?PreMessagePattern = null,
 pre_message_pattern_responder: ?PreMessagePattern = null,
-message_patterns: ArrayList(MessagePattern),
+message_patterns: MessagePatternArray,
+
+pub const MessagePatternArray = struct {
+    buffer: []MessageToken,
+    pattern_lens: []usize,
+    pattern_index: usize = 0,
+    token_index: usize = 0,
+
+    pub fn fromTokens(allocator: Allocator, token_arrs: []const BoundedTokenArray) !MessagePatternArray {
+        var pattern_lens = try allocator.alloc(usize, token_arrs.len);
+        var num_tokens: usize = 0;
+
+        for (token_arrs, 0..) |a, i| {
+            num_tokens += a.len;
+            pattern_lens[i] = a.len;
+        }
+
+        var buffer = try allocator.alloc(MessageToken, num_tokens);
+
+        var i: usize = 0;
+        for (token_arrs) |a| {
+            for (a.constSlice(), 0..) |t, j| {
+                buffer[i + j] = t;
+            }
+            i += a.len;
+        }
+
+        return .{
+            .buffer = buffer,
+            .pattern_lens = pattern_lens,
+        };
+    }
+
+    pub fn next(self: *MessagePatternArray) ?[]const MessageToken {
+        if (self.isFinished()) return null;
+
+        const len = self.pattern_lens[self.pattern_index];
+        const slice = self.buffer[self.token_index .. self.token_index + len];
+        self.pattern_index += 1;
+        self.token_index += len;
+
+        return slice;
+    }
+
+    pub fn isFinished(self: *MessagePatternArray) bool {
+        return self.pattern_index >= self.pattern_lens.len;
+    }
+
+    pub fn deinit(self: *MessagePatternArray, allocator: Allocator) void {
+        allocator.free(self.buffer);
+        allocator.free(self.pattern_lens);
+    }
+};
 
 pub const HandshakePattern = @This();
+
+// Protocol names are always in the format "Noise_..." and are limited to <= 255 bytes.
+//
+// Given the shortest possible base protocol name: "Noise_N_448_AESGCM_SHA256" (25 bytes)
+// We have 255 - 25 = 230 bytes to spare.
+//
+// The shortest modifier is 'pskX' (4 bytes), where 'X' is an integer specifying where to insert a psk token.
+// These modifiers are separated by '+' (1 byte).
+// (230 - 4) = 226 / 5 = 45 modifiers
+//
+// We can have roughly 45 modifiers within a protocol name in the worst case, but realistically this wouldn't be the case (we wouldn't append 'psk0' multiple times for example).
+//
+// Perhaps we can safely estimate it to be 45 modifiers / 4 maximum patterns = ~11 modifiers per pattern, and we add it to the known maximum number of tokens in a pattern which is 4, so 11 + 4 = 15 tokens. This is probably not even important, why did i bother calculating this?
+const BoundedTokenArray = BoundedArray(MessageToken, 15);
 
 pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !HandshakePattern {
     var hs_pattern_name_en = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name);
@@ -119,384 +184,237 @@ pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !Hands
     }
 
     var handshake_pattern: HandshakePattern = HandshakePattern{
-        .message_patterns = ArrayList(MessagePattern).init(allocator),
+        .message_patterns = undefined,
     };
+
+    var message_patterns = try BoundedArray(BoundedTokenArray, 4).init(0);
 
     switch (hs_pattern_name_en.?) {
         .N => {
-            var patterns: [1]MessagePattern = .{&[_]MessageToken{ .e, .es }};
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append((try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es })));
         },
         .NN => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee },
-            };
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append((try BoundedTokenArray.fromSlice(&[_]MessageToken{.e})));
+            try message_patterns.append((try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee })));
         },
         .NK => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{ .e, .es },
-                &[_]MessageToken{ .e, .ee },
-            };
-
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append((try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es })));
+            try message_patterns.append((try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee })));
         },
         .NK1 => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .es },
-            };
-
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .es }));
         },
         .NX => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .s, .es },
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .s, .es }));
         },
         .NX1 => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .s },
-                &[_]MessageToken{.es},
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.es}));
         },
 
         .K => {
-            var patterns: [1]MessagePattern = .{&[_]MessageToken{ .e, .es, .ss }};
             handshake_pattern.pre_message_pattern_initiator = .s;
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es, .ss }));
         },
         .KN => {
-            var patterns: [2]MessagePattern = [_]MessagePattern{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .se },
-            };
-
             handshake_pattern.pre_message_pattern_initiator = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .se }));
         },
         .KK => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{ .e, .es, .ss },
-                &[_]MessageToken{ .e, .ee, .se },
-            };
-
             handshake_pattern.pre_message_pattern_initiator = .s;
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es, .ss }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .se }));
         },
         .KX => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .se, .s, .es },
-            };
-
             handshake_pattern.pre_message_pattern_initiator = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .se, .s, .es }));
         },
         .K1N => {
-            var patterns: [3]MessagePattern = [_]MessagePattern{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee },
-                &[_]MessageToken{.se},
-            };
-
             handshake_pattern.pre_message_pattern_initiator = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
         .K1K => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{ .e, .es },
-                &[_]MessageToken{ .e, .ee },
-                &[_]MessageToken{.se},
-            };
-
             handshake_pattern.pre_message_pattern_initiator = .s;
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
         .KK1 => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .se, .es },
-            };
-
             handshake_pattern.pre_message_pattern_initiator = .s;
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .se, .es }));
         },
         .K1K1 => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .es },
-                &[_]MessageToken{.se},
-            };
-
             handshake_pattern.pre_message_pattern_initiator = .s;
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
         .K1X => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .s, .es },
-                &[_]MessageToken{.se},
-            };
-
             handshake_pattern.pre_message_pattern_initiator = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .s, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
         .KX1 => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .se, .s },
-                &[_]MessageToken{.es},
-            };
             handshake_pattern.pre_message_pattern_initiator = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .se, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.es}));
         },
         .K1X1 => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .s },
-                &[_]MessageToken{ .se, .es },
-            };
             handshake_pattern.pre_message_pattern_initiator = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .se, .es }));
         },
         .X => {
-            var patterns: [1]MessagePattern = .{&[_]MessageToken{ .e, .es, .s, .ss }};
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
             handshake_pattern.pre_message_pattern_responder = .s;
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es, .s, .ss }));
         },
         .XN => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee },
-                &[_]MessageToken{ .s, .se },
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .s, .se }));
         },
         .X1N => {
-            var patterns: [4]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee },
-                &[_]MessageToken{.s},
-                &[_]MessageToken{.se},
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.s}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
 
         .XK => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{ .e, .es },
-                &[_]MessageToken{ .e, .ee },
-                &[_]MessageToken{ .s, .se },
-            };
-
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .s, .se }));
         },
         .X1K => {
-            var patterns: [4]MessagePattern = .{
-                &[_]MessageToken{ .e, .es },
-                &[_]MessageToken{ .e, .ee },
-                &[_]MessageToken{.s},
-                &[_]MessageToken{.se},
-            };
-
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.s}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
         .XK1 => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .es },
-                &[_]MessageToken{ .s, .se },
-            };
-
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .s, .se }));
         },
         .X1K1 => {
-            var patterns: [4]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .es },
-                &[_]MessageToken{.s},
-                &[_]MessageToken{.se},
-            };
-
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.s}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
 
         .XX => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .s, .es },
-                &[_]MessageToken{ .s, .se },
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .s, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .s, .se }));
         },
         .X1X => {
-            var patterns: [4]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .s, .es },
-                &[_]MessageToken{.s},
-                &[_]MessageToken{.se},
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .s, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.s}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
         .XX1 => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .s },
-                &[_]MessageToken{ .es, .s, .se },
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .es, .s, .se }));
         },
         .X1X1 => {
-            var patterns: [4]MessagePattern = .{
-                &[_]MessageToken{.e},
-                &[_]MessageToken{ .e, .ee, .s },
-                &[_]MessageToken{ .es, .s },
-                &[_]MessageToken{.se},
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.e}));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .es, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
-
         .IN => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{ .e, .s },
-                &[_]MessageToken{ .e, .ee, .se },
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .se }));
         },
         .I1N => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{ .e, .s },
-                &[_]MessageToken{ .e, .ee },
-                &[_]MessageToken{.se},
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
 
         .IK => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{ .e, .es, .s, .ss },
-                &[_]MessageToken{ .e, .ee, .se },
-            };
-
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es, .s, .ss }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .se }));
         },
         .I1K => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{ .e, .es, .s },
-                &[_]MessageToken{ .e, .ee },
-                &[_]MessageToken{.se},
-            };
-
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
         .IK1 => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{ .e, .s },
-                &[_]MessageToken{ .e, .ee, .se, .es },
-            };
-
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .se, .es }));
         },
         .I1K1 => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{ .e, .s },
-                &[_]MessageToken{ .e, .ee, .es },
-                &[_]MessageToken{.se},
-            };
-
             handshake_pattern.pre_message_pattern_responder = .s;
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
         .IX => {
-            var patterns: [2]MessagePattern = .{
-                &[_]MessageToken{ .e, .s },
-                &[_]MessageToken{ .e, .ee, .se, .s, .es },
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .se, .s, .es }));
         },
         .I1X => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{ .e, .s },
-                &[_]MessageToken{ .e, .ee, .s, .es },
-                &[_]MessageToken{.se},
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .s, .es }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.se}));
         },
         .IX1 => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{ .e, .s },
-                &[_]MessageToken{ .e, .ee, .se, .s },
-                &[_]MessageToken{.es},
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .se, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{.es}));
         },
         .I1X1 => {
-            var patterns: [3]MessagePattern = .{
-                &[_]MessageToken{ .e, .s },
-                &[_]MessageToken{ .e, .ee, .s },
-                &[_]MessageToken{ .se, .es },
-            };
-
-            try handshake_pattern.message_patterns.appendSlice(&patterns);
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .ee, .s }));
+            try message_patterns.append(try BoundedTokenArray.fromSlice(&[_]MessageToken{ .se, .es }));
         },
     }
+
     while (modifier_it.next()) |m| {
         if (std.mem.containsAtLeast(u8, m, 1, "psk")) {
             const num = try std.fmt.parseInt(usize, m["psk".len .. "psk".len + 1], 10);
 
             if (num == 0) {
-                const original_pattern = handshake_pattern.message_patterns.items[num];
-                var new_pattern = try std.ArrayList(MessageToken).initCapacity(allocator, original_pattern.len + 1);
-
-                try new_pattern.append(.psk);
-                try new_pattern.appendSlice(original_pattern);
-                handshake_pattern.message_patterns.items[num] = try new_pattern.toOwnedSlice();
-                new_pattern.deinit();
+                try message_patterns.slice()[0].insert(0, .psk);
             } else {
-                const original_pattern = handshake_pattern.message_patterns.items[num - 1];
-                var new_pattern = try std.ArrayList(MessageToken).initCapacity(allocator, original_pattern.len + 1);
-
-                try new_pattern.appendSlice(original_pattern);
-                try new_pattern.append(.psk);
-                handshake_pattern.message_patterns.items[num - 1] = try new_pattern.toOwnedSlice();
-                new_pattern.deinit();
+                try message_patterns.slice()[num - 1].append(.psk);
             }
         }
     }
+
+    const patterns = try MessagePatternArray.fromTokens(allocator, message_patterns.constSlice());
+    handshake_pattern.message_patterns = patterns;
 
     return handshake_pattern;
 }

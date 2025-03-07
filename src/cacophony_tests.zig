@@ -75,10 +75,10 @@ pub fn keypairFromSecretKey(secret_key: []const u8) !DH.KeyPair {
 }
 
 test "cacophony" {
-    // Use arena allocator to avoid memory leaks
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    //var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    //defer arena.deinit();
+    //const allocator = arena.allocator();
+    const allocator = std.testing.allocator;
     const cacophony_txt = try std.fs.cwd().openFile("./testdata/cacophony.txt", .{});
     defer cacophony_txt.close();
     const buf: []u8 = try cacophony_txt.readToEndAlloc(allocator, 5_000_000);
@@ -137,7 +137,7 @@ test "cacophony" {
         };
 
         const pattern = try patternFromName(allocator, protocol.pattern);
-        
+
         var initiator = try HandshakeState.init(
             vector.protocol_name,
             allocator,
@@ -180,7 +180,7 @@ test "cacophony" {
         };
 
         const resp_pattern = try patternFromName(allocator, protocol.pattern);
-        
+
         var responder = try HandshakeState.init(
             vector.protocol_name,
             allocator,
@@ -214,9 +214,11 @@ test "cacophony" {
             // Test handshake phase
             var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
-            const sender_cipherstates = sender.writeMessage(payload, &send_buf) catch {
+            const sender_cipherstates = sender.writeMessage(payload, &send_buf) catch |e| {
                 failed_vector_count += 1;
                 std.debug.print("Vector \"{s}\" ({}) failed at writeMessage for message {}\n", .{ vector.protocol_name, vector_num + 1, k });
+                std.debug.print("Err = {any}\n", .{e});
+                // break :handshake_blk;
                 continue :vector_test;
             };
 
