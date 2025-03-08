@@ -187,10 +187,30 @@ pub const SymmetricState = struct {
         self.cipher_state = CipherState.init(&self.cipher_choice, temp_k);
     }
 
-    pub fn mixHash(self: *Self, data: []const u8) !void {
-        const h_with_data = try std.mem.concat(self.allocator, u8, &[_][]const u8{ self.h.constSlice(), data });
+    /// Mix hash with a variable-length `data` input.
+    ///
+    /// This is for use in (1) mixing prologue or (2) encryption/decryption, since
+    /// the payloads are of variable-length.
+    ///
+    /// For mixing with cipher keys or hash digests, we use `mixHashBounded`.
+    pub fn mixHash(self: *Self, allocator: Allocator, data: []const u8) !void {
+        const h_with_data = try std.mem.concat(allocator, u8, &[_][]const u8{ self.h.constSlice(), data });
         defer self.allocator.free(h_with_data);
         self.h = try self.hasher.hash(h_with_data);
+    }
+
+    /// The no-alloc version of `mixHash`. This is for mixing data of bounded length:
+    /// We know that we use `mixHash` possibly with
+    /// (1) cipher keys (32 bytes), or
+    /// (2) hash digests (32 or 64 bytes),
+    ///
+    /// So we use a `BoundedArray` of a maximum of 128 bytes instead of using `std.mem.concat` for these use cases.
+    pub fn mixHashBounded(self: *Self, data: []const u8) !void {
+        // MAXHASHLEN + max possible HKDF output (64) = 128 bytes
+        var h_with_data = try std.BoundedArray(u8, 128).init(0);
+        try h_with_data.appendSlice(self.h.constSlice());
+        try h_with_data.appendSlice(data);
+        self.h = try self.hasher.hash(h_with_data.constSlice());
     }
 
     /// Used for pre-shared symmetric key (or PSK) mode to support protocols where both parties
@@ -199,23 +219,23 @@ pub const SymmetricState = struct {
         const output = try self.hasher.HKDF(self.ck.constSlice(), input_key_material, 3);
 
         self.ck = output[0];
-        try self.mixHash(output[1].constSlice());
+        try self.mixHashBounded(output[1].constSlice());
         var temp_k: [32]u8 = undefined;
         @memcpy(&temp_k, output[2].?.constSlice()[0..32]);
         self.cipher_state = CipherState.init(&self.cipher_choice, temp_k);
     }
 
-    pub fn encryptAndHash(self: *Self, ciphertext: []u8, plaintext: []const u8) ![]const u8 {
+    pub fn encryptAndHash(self: *Self, allocator: Allocator, ciphertext: []u8, plaintext: []const u8) ![]const u8 {
         //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
         const slice = try self.cipher_state.encryptWithAd(ciphertext, self.h.constSlice(), plaintext);
-        try self.mixHash(slice);
+        try self.mixHash(allocator, slice);
         return slice;
     }
 
     /// Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
-    pub fn decryptAndHash(self: *Self, plaintext: []u8, ciphertext: []const u8) ![]const u8 {
+    pub fn decryptAndHash(self: *Self, allocator: Allocator, plaintext: []u8, ciphertext: []const u8) ![]const u8 {
         const decrypted = try self.cipher_state.decryptWithAd(plaintext, self.h.constSlice(), ciphertext);
-        try self.mixHash(ciphertext);
+        try self.mixHash(allocator, ciphertext);
         return decrypted;
     }
 
