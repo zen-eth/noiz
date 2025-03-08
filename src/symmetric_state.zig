@@ -194,6 +194,7 @@ pub const SymmetricState = struct {
     ///
     /// For mixing with cipher keys or hash digests, we use `mixHashBounded`.
     pub fn mixHash(self: *Self, allocator: Allocator, data: []const u8) !void {
+        // TODO: possibly reuse an underlying buffer to get rid of allocs on a hot path?
         const h_with_data = try std.mem.concat(allocator, u8, &[_][]const u8{ self.h.constSlice(), data });
         defer self.allocator.free(h_with_data);
         self.h = try self.hasher.hash(h_with_data);
