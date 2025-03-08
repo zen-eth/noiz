@@ -1,7 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const BoundedArray = std.BoundedArray;
+
+const HandshakePatternError = error{
+    UnrecognizedName,
+};
 
 pub const MessageToken = enum {
     e,
@@ -166,30 +169,34 @@ pub const HandshakePattern = @This();
 const BoundedTokenArray = BoundedArray(MessageToken, 15);
 
 pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !HandshakePattern {
-    var hs_pattern_name_en = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name);
+    var hs_pattern_name_enum = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name);
 
     var modifier_it: std.mem.SplitIterator(u8, .any) = undefined;
-    if (hs_pattern_name_en == null) {
+
+    // Exhaustively split pattern name string to get a valid pattern name. If none are found,
+    // we return a `HandshakePatternError.UnrecognizedName` error.
+    if (hs_pattern_name_enum == null) {
         var modifier_str: []const u8 = undefined;
         for (1..hs_pattern_name.len) |i| {
             const pattern = std.meta.stringToEnum(HandshakePatternName, hs_pattern_name[0 .. hs_pattern_name.len - i]);
 
             if (pattern) |_| {
                 modifier_str = hs_pattern_name[hs_pattern_name.len - i .. hs_pattern_name.len];
-                hs_pattern_name_en = pattern;
+                hs_pattern_name_enum = pattern;
                 break;
             }
         }
         modifier_it = std.mem.splitAny(u8, modifier_str, "+");
     }
 
-    var handshake_pattern: HandshakePattern = HandshakePattern{
-        .message_patterns = undefined,
-    };
+    if (hs_pattern_name_enum == null) return HandshakePatternError.UnrecognizedName;
+    var handshake_pattern: HandshakePattern = HandshakePattern{ .message_patterns = undefined };
 
+    // Message patterns still have to possibly be mutated after the fixed patterns to account for modifiers, so we
+    // use `std.BoundedArray` here.
     var message_patterns = try BoundedArray(BoundedTokenArray, 4).init(0);
 
-    switch (hs_pattern_name_en.?) {
+    switch (hs_pattern_name_enum.?) {
         .N => {
             handshake_pattern.pre_message_pattern_responder = .s;
             try message_patterns.append((try BoundedTokenArray.fromSlice(&[_]MessageToken{ .e, .es })));
@@ -405,11 +412,10 @@ pub fn patternFromName(allocator: Allocator, hs_pattern_name: []const u8) !Hands
         if (std.mem.containsAtLeast(u8, m, 1, "psk")) {
             const num = try std.fmt.parseInt(usize, m["psk".len .. "psk".len + 1], 10);
 
-            if (num == 0) {
-                try message_patterns.slice()[0].insert(0, .psk);
-            } else {
+            if (num == 0)
+                try message_patterns.slice()[0].insert(0, .psk)
+            else
                 try message_patterns.slice()[num - 1].append(.psk);
-            }
         }
     }
 
