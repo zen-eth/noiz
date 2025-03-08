@@ -22,7 +22,6 @@ const HashSha256 = @import("hash.zig").HashSha256;
 const HashSha512 = @import("hash.zig").HashSha512;
 const HashBlake2b = @import("hash.zig").HashBlake2b;
 const HashBlake2s = @import("hash.zig").HashBlake2s;
-const HashChoice = @import("hash.zig").HashChoice;
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
@@ -79,6 +78,7 @@ test "cacophony" {
     //defer arena.deinit();
     //const allocator = arena.allocator();
     const allocator = std.testing.allocator;
+
     const cacophony_txt = try std.fs.cwd().openFile("./testdata/cacophony.txt", .{});
     defer cacophony_txt.close();
     const buf: []u8 = try cacophony_txt.readToEndAlloc(allocator, 5_000_000);

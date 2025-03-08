@@ -149,12 +149,14 @@ pub const SymmetricState = struct {
         } else {
             h = try hasher.hash(protocol_name);
         }
+
+        // Noise protocol names are always in the format Noise_<PATTERN_NAME>_<CURVE>_<CIPHER>_<HASH>.
         var split_it = std.mem.splitScalar(u8, protocol_name, '_');
-        _ = split_it.next().?;
-        _ = split_it.next().?;
-        _ = split_it.next().?;
+        _ = split_it.next().?; // Noise
+        _ = split_it.next().?; // <PATTERN_NAME>
+        _ = split_it.next().?; // <CURVE>
         var cipher_choice = [_]u8{0} ** 10;
-        const cipher_choice_st = split_it.next().?;
+        const cipher_choice_st = split_it.next().?; // <CIPHER>
         std.mem.copyForwards(u8, &cipher_choice, cipher_choice_st);
 
         const cipher_state = CipherState.init(&cipher_choice, [_]u8{0} ** 32);
@@ -238,10 +240,6 @@ pub const SymmetricState = struct {
 
         return .{ c1, c2 };
     }
-
-    pub fn deinit(self: *Self) void {
-        _ = self;
-    }
 };
 
 test "init symmetric state" {
@@ -254,6 +252,4 @@ test "init symmetric state" {
     const allocator = std.testing.allocator;
     const output = try symmetric_state.hasher.HKDF(&ck, &ikm, 3);
     errdefer allocator.free(&output[0]);
-
-    defer symmetric_state.deinit();
 }
