@@ -48,7 +48,6 @@ pub fn protocolFromName(protocol_name: []const u8) Protocol {
 }
 
 pub const SymmetricState = struct {
-    allocator: Allocator,
     cipher_choice: [10]u8,
     cipher_state: CipherState,
     ck: BoundedArray(u8, MAXHASHLEN),
@@ -127,7 +126,7 @@ pub const SymmetricState = struct {
         }
     };
 
-    pub fn init(allocator: Allocator, protocol_name: []const u8) !Self {
+    pub fn init(protocol_name: []const u8) !Self {
         const protocol = protocolFromName(protocol_name);
 
         const hash_len: usize = switch (protocol.hash) {
@@ -163,7 +162,6 @@ pub const SymmetricState = struct {
         try ck.appendSlice(h.constSlice());
 
         return .{
-            .allocator = allocator,
             .cipher_choice = cipher_choice,
             .cipher_state = cipher_state,
             .ck = ck,
@@ -196,7 +194,7 @@ pub const SymmetricState = struct {
     pub fn mixHash(self: *Self, allocator: Allocator, data: []const u8) !void {
         // TODO: possibly reuse an underlying buffer to get rid of allocs on a hot path?
         const h_with_data = try std.mem.concat(allocator, u8, &[_][]const u8{ self.h.constSlice(), data });
-        defer self.allocator.free(h_with_data);
+        defer allocator.free(h_with_data);
         self.h = try self.hasher.hash(h_with_data);
     }
 
@@ -264,10 +262,7 @@ pub const SymmetricState = struct {
 };
 
 test "init symmetric state" {
-    var symmetric_state = try SymmetricState.init(
-        std.testing.allocator,
-        "Noise_XX_25519_AESGCM_SHA256",
-    );
+    var symmetric_state = try SymmetricState.init("Noise_XX_25519_AESGCM_SHA256");
     const ck = [_]u8{1} ** 32;
     const ikm = [_]u8{};
     const allocator = std.testing.allocator;

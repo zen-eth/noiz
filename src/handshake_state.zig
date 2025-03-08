@@ -150,7 +150,7 @@ pub const HandshakeState = struct {
         psks: ?[]const u8,
         keys: Keys,
     ) !Self {
-        var sym = try SymmetricState.init(allocator, protocol_name);
+        var sym = try SymmetricState.init(protocol_name);
         try sym.mixHash(allocator, prologue);
 
         if (role == .Initiator) {
