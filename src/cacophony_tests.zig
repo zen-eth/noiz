@@ -104,7 +104,9 @@ test "cacophony" {
         else
             false;
 
-        // See
+        // zig stdlib does not plan to support 448 so we skip these tests.
+        //
+        // See: https://github.com/ziglang/zig/issues/22101#issuecomment-2507982794
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
 
         if (options.enable_logging) std.debug.print("\n***** Testing: {s} *****\n", .{vector.protocol_name});
