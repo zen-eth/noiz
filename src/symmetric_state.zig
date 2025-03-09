@@ -4,6 +4,7 @@
 const std = @import("std");
 
 const BoundedArray = std.BoundedArray;
+const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
 const CipherState = @import("./cipher.zig").CipherState;
@@ -16,6 +17,8 @@ const HashSha512 = @import("hash.zig").HashSha512;
 const HashBlake2b = @import("hash.zig").HashBlake2b;
 const HashBlake2s = @import("hash.zig").HashBlake2s;
 const HashChoice = @import("hash.zig").HashChoice;
+
+const MAX_MESSAGE_LEN = @import("handshake_state.zig").MAX_MESSAGE_LEN;
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
@@ -54,6 +57,7 @@ pub const SymmetricState = struct {
     h: BoundedArray(u8, MAXHASHLEN),
 
     hasher: Hasher,
+    buffer: ArrayList(u8),
 
     const Self = @This();
 
@@ -126,7 +130,7 @@ pub const SymmetricState = struct {
         }
     };
 
-    pub fn init(protocol_name: []const u8) !Self {
+    pub fn init(allocator: Allocator, protocol_name: []const u8) !Self {
         const protocol = protocolFromName(protocol_name);
 
         const hash_len: usize = switch (protocol.hash) {
@@ -167,6 +171,7 @@ pub const SymmetricState = struct {
             .ck = ck,
             .h = h,
             .hasher = hasher,
+            .buffer = try ArrayList(u8).initCapacity(allocator, MAX_MESSAGE_LEN),
         };
     }
 
@@ -191,11 +196,12 @@ pub const SymmetricState = struct {
     /// the payloads are of variable-length.
     ///
     /// For mixing with cipher keys or hash digests, we use `mixHashBounded`.
-    pub fn mixHash(self: *Self, allocator: Allocator, data: []const u8) !void {
+    pub fn mixHash(self: *Self, data: []const u8) !void {
         // TODO: possibly reuse an underlying buffer to get rid of allocs on a hot path?
-        const h_with_data = try std.mem.concat(allocator, u8, &[_][]const u8{ self.h.constSlice(), data });
-        defer allocator.free(h_with_data);
-        self.h = try self.hasher.hash(h_with_data);
+        try self.buffer.appendSlice(self.h.constSlice());
+        try self.buffer.appendSlice(data);
+        defer self.buffer.clearRetainingCapacity();
+        self.h = try self.hasher.hash(self.buffer.items);
     }
 
     /// The no-alloc version of `mixHash`. This is for mixing data of bounded length:
@@ -224,17 +230,17 @@ pub const SymmetricState = struct {
         self.cipher_state = CipherState.init(&self.cipher_choice, temp_k);
     }
 
-    pub fn encryptAndHash(self: *Self, allocator: Allocator, ciphertext: []u8, plaintext: []const u8) ![]const u8 {
+    pub fn encryptAndHash(self: *Self, ciphertext: []u8, plaintext: []const u8) ![]const u8 {
         //Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
         const slice = try self.cipher_state.encryptWithAd(ciphertext, self.h.constSlice(), plaintext);
-        try self.mixHash(allocator, slice);
+        try self.mixHash(slice);
         return slice;
     }
 
     /// Sets ciphertext = EncryptWithAd(h, plaintext), calls MixHash(ciphertext), and returns ciphertext. Note that if k is empty, the EncryptWithAd() call will set ciphertext equal to plaintext.
-    pub fn decryptAndHash(self: *Self, allocator: Allocator, plaintext: []u8, ciphertext: []const u8) ![]const u8 {
+    pub fn decryptAndHash(self: *Self, plaintext: []u8, ciphertext: []const u8) ![]const u8 {
         const decrypted = try self.cipher_state.decryptWithAd(plaintext, self.h.constSlice(), ciphertext);
-        try self.mixHash(allocator, ciphertext);
+        try self.mixHash(ciphertext);
         return decrypted;
     }
 
@@ -262,10 +268,12 @@ pub const SymmetricState = struct {
 };
 
 test "init symmetric state" {
-    var symmetric_state = try SymmetricState.init("Noise_XX_25519_AESGCM_SHA256");
+    const allocator = std.testing.allocator;
+    var symmetric_state = try SymmetricState.init(allocator, "Noise_XX_25519_AESGCM_SHA256");
+    defer symmetric_state.buffer.deinit();
+
     const ck = [_]u8{1} ** 32;
     const ikm = [_]u8{};
-    const allocator = std.testing.allocator;
     const output = try symmetric_state.hasher.HKDF(&ck, &ikm, 3);
     errdefer allocator.free(&output[0]);
 }

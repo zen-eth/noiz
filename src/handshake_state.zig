@@ -150,8 +150,8 @@ pub const HandshakeState = struct {
         psks: ?[]const u8,
         keys: Keys,
     ) !Self {
-        var sym = try SymmetricState.init(protocol_name);
-        try sym.mixHash(allocator, prologue);
+        var sym = try SymmetricState.init(allocator, protocol_name);
+        try sym.mixHash(prologue);
 
         if (role == .Initiator) {
             // The initiator's public key(s) are always hashed first.
@@ -234,7 +234,7 @@ pub const HandshakeState = struct {
                     },
                     .s => {
                         var ciphertext: [48]u8 = undefined;
-                        const h = try self.symmetric_state.encryptAndHash(self.allocator, &ciphertext, &self.s.?.inner.public_key);
+                        const h = try self.symmetric_state.encryptAndHash(&ciphertext, &self.s.?.inner.public_key);
                         try message.appendSlice(h);
                     },
                     .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
@@ -259,7 +259,7 @@ pub const HandshakeState = struct {
         }
 
         var ciphertext: [100]u8 = undefined;
-        const h = try self.symmetric_state.encryptAndHash(self.allocator, &ciphertext, payload);
+        const h = try self.symmetric_state.encryptAndHash(&ciphertext, payload);
         try message.appendSlice(ciphertext[0..h.len]);
         if (self.message_patterns.isFinished()) {
             return try self.symmetric_state.split();
@@ -295,7 +295,7 @@ pub const HandshakeState = struct {
                     .s => {
                         const len: usize = if (self.symmetric_state.cipher_state.hasKey()) DH.KeyPair.DHLEN + 16 else DH.KeyPair.DHLEN;
 
-                        _ = try self.symmetric_state.decryptAndHash(self.allocator, self.rs.?[0..], message[msg_idx .. msg_idx + len]);
+                        _ = try self.symmetric_state.decryptAndHash(self.rs.?[0..], message[msg_idx .. msg_idx + len]);
                         msg_idx += len;
                     },
                     .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
@@ -320,7 +320,7 @@ pub const HandshakeState = struct {
         }
 
         var plaintext: [MAX_MESSAGE_LEN]u8 = undefined;
-        const h = try self.symmetric_state.decryptAndHash(self.allocator, plaintext[0 .. message.len - msg_idx], message[msg_idx..message.len]);
+        const h = try self.symmetric_state.decryptAndHash(plaintext[0 .. message.len - msg_idx], message[msg_idx..message.len]);
         try payload_buf.appendSlice(h);
 
         if (self.message_patterns.isFinished()) return try self.symmetric_state.split();
@@ -334,6 +334,7 @@ pub const HandshakeState = struct {
     /// Release all allocated memory.
     pub fn deinit(self: *Self) void {
         self.message_patterns.deinit(self.allocator);
+        self.symmetric_state.buffer.deinit();
         if (self.psks) |psks| {
             self.allocator.free(psks);
         }
