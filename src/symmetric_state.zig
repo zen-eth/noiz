@@ -202,8 +202,8 @@ pub const SymmetricState = struct {
     pub fn mixHash(self: *Self, data: []const u8) !void {
         try self.buffer.appendSlice(self.h.constSlice());
         try self.buffer.appendSlice(data);
-        defer self.buffer.clearRetainingCapacity();
         self.h = try self.hasher.hash(self.buffer.items);
+        self.buffer.clearRetainingCapacity();
     }
 
     /// The no-alloc version of `mixHash`. This is for mixing data of bounded length:
