@@ -74,13 +74,9 @@ pub const HandshakeState = struct {
 
     message_patterns: MessagePatternArray,
 
-    pattern_idx: usize = 0,
     psk_idx: usize = 0,
 
     symmetric_state: SymmetricState,
-
-    /// A handshake pattern name section contains a handshake pattern name plus a sequence of zero or more pattern modifiers.
-    pub const HandshakePatternNameSection: []const u8 = [_][]const u8{};
 
     const Keys = struct {
         /// The local static key pair
@@ -186,42 +182,34 @@ pub const HandshakeState = struct {
                         try message.appendSlice(&pubkey);
                         try self.symmetric_state.mixHashBounded(&pubkey);
 
-                        if (self.psks) |psks| {
-                            if (psks.len > 0) try self.symmetric_state.mixKey(&pubkey);
-                        }
+                        if (self.psks) |psks| if (psks.len > 0) try self.symmetric_state.mixKey(&pubkey);
                     },
                     .s => {
                         var ciphertext: [48]u8 = undefined;
-                        const h = try self.symmetric_state.encryptAndHash(&ciphertext, &self.s.?.inner.public_key);
-                        try message.appendSlice(h);
+                        try message.appendSlice(try self.symmetric_state.encryptAndHash(&ciphertext, &self.s.?.inner.public_key));
                     },
                     .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
                     .es => {
                         var keypair, const ikm = if (self.role == .Initiator) .{ self.e, self.rs } else .{ self.s, self.re };
-                        const dh_out = try keypair.?.DH(ikm.?);
-                        try self.symmetric_state.mixKey(&dh_out);
+                        try self.symmetric_state.mixKey(&try keypair.?.DH(ikm.?));
                     },
                     .se => {
                         var keypair, const ikm = if (self.role == .Initiator) .{ self.s, self.re } else .{ self.e, self.rs };
-                        const dh_out = try keypair.?.DH(ikm.?);
-                        try self.symmetric_state.mixKey(&dh_out);
+                        try self.symmetric_state.mixKey(&try keypair.?.DH(ikm.?));
                     },
                     .ss => try self.symmetric_state.mixKey(&try self.s.?.DH(self.rs.?)),
                     .psk => {
-                        // no-op
                         try self.symmetric_state.mixKeyAndHash(self.psks.?[self.psk_idx * PSK_SIZE .. (self.psk_idx + 1) * PSK_SIZE]);
-                        // self.psk_idx += 1;
+                        self.psk_idx += 1;
                     },
                 }
             }
         }
 
-        var ciphertext: [100]u8 = undefined;
+        var ciphertext: [MAX_MESSAGE_LEN]u8 = undefined;
         const h = try self.symmetric_state.encryptAndHash(&ciphertext, payload);
         try message.appendSlice(ciphertext[0..h.len]);
-        if (self.message_patterns.isFinished()) {
-            return try self.symmetric_state.split();
-        }
+        if (self.message_patterns.isFinished()) return try self.symmetric_state.split();
 
         return null;
     }
@@ -245,9 +233,7 @@ pub const HandshakeState = struct {
                         @memcpy(self.re.?[0..], message[msg_idx .. msg_idx + DH.KeyPair.DHLEN]);
                         try self.symmetric_state.mixHashBounded(&self.re.?);
 
-                        if (self.psks) |psks| {
-                            if (psks.len > 0) try self.symmetric_state.mixKey(&self.re.?);
-                        }
+                        if (self.psks) |psks| if (psks.len > 0) try self.symmetric_state.mixKey(&self.re.?);
                         msg_idx += DH.KeyPair.DHLEN;
                     },
                     .s => {
@@ -258,8 +244,7 @@ pub const HandshakeState = struct {
                     },
                     .ee => try self.symmetric_state.mixKey(&try self.e.?.DH(self.re.?)),
                     .es => {
-                        var keypair = if (self.role == .Initiator) self.e else self.s;
-                        const ikm = if (self.role == .Initiator) self.rs else self.re;
+                        var keypair, const ikm = if (self.role == .Initiator) .{ self.e, self.rs } else .{ self.s, self.re };
                         try self.symmetric_state.mixKey(&try keypair.?.DH(ikm.?));
                     },
                     .se => {
@@ -268,10 +253,8 @@ pub const HandshakeState = struct {
                     },
                     .ss => try self.symmetric_state.mixKey(&try self.s.?.DH(self.rs.?)),
                     .psk => {
-                        // no-op
-                        //
                         try self.symmetric_state.mixKeyAndHash(self.psks.?[self.psk_idx * PSK_SIZE .. (self.psk_idx + 1) * PSK_SIZE]);
-                        // self.psk_idx += 1;
+                        self.psk_idx += 1;
                     },
                 }
             }
@@ -280,8 +263,8 @@ pub const HandshakeState = struct {
         var plaintext: [MAX_MESSAGE_LEN]u8 = undefined;
         const h = try self.symmetric_state.decryptAndHash(plaintext[0 .. message.len - msg_idx], message[msg_idx..message.len]);
         try payload_buf.appendSlice(h);
-
         if (self.message_patterns.isFinished()) return try self.symmetric_state.split();
+
         return null;
     }
 
@@ -293,8 +276,6 @@ pub const HandshakeState = struct {
     pub fn deinit(self: *Self) void {
         self.message_patterns.deinit(self.allocator);
         self.symmetric_state.buffer.deinit();
-        if (self.psks) |psks| {
-            self.allocator.free(psks);
-        }
+        if (self.psks) |psks| self.allocator.free(psks);
     }
 };

@@ -57,6 +57,9 @@ pub const SymmetricState = struct {
     h: BoundedArray(u8, MAXHASHLEN),
 
     hasher: Hasher,
+
+    /// An internal buffer used for storing variable-length data during `mixHash`.
+    /// This is reused throughout handshake / transport in order to save on allocations.
     buffer: ArrayList(u8),
 
     const Self = @This();
@@ -159,8 +162,8 @@ pub const SymmetricState = struct {
         _ = split_it.next().?; // <PATTERN_NAME>
         _ = split_it.next().?; // <CURVE>
         var cipher_choice = [_]u8{0} ** 10;
-        const cipher_choice_st = split_it.next().?; // <CIPHER>
-        std.mem.copyForwards(u8, &cipher_choice, cipher_choice_st);
+        const cipher_choice_str = split_it.next().?; // <CIPHER>
+        @memcpy(cipher_choice[0..cipher_choice_str.len], cipher_choice_str);
 
         const cipher_state = CipherState.init(&cipher_choice, [_]u8{0} ** 32);
         try ck.appendSlice(h.constSlice());
@@ -197,7 +200,6 @@ pub const SymmetricState = struct {
     ///
     /// For mixing with cipher keys or hash digests, we use `mixHashBounded`.
     pub fn mixHash(self: *Self, data: []const u8) !void {
-        // TODO: possibly reuse an underlying buffer to get rid of allocs on a hot path?
         try self.buffer.appendSlice(self.h.constSlice());
         try self.buffer.appendSlice(data);
         defer self.buffer.clearRetainingCapacity();
@@ -247,12 +249,6 @@ pub const SymmetricState = struct {
     pub fn split(
         self: *Self,
     ) !struct { CipherState, CipherState } {
-        //
-        //    Sets temp_k1, temp_k2 = HKDF(ck, zerolen, 2).
-        //    If HASHLEN is MAXHASHLEN, then truncates temp_k1 and temp_k2 to 32 bytes.
-        //    Creates two new CipherState objects c1 and c2.
-        //    Calls c1.InitializeKey(temp_k1) and c2.InitializeKey(temp_k2).
-        //    Returns the pair (c1, c2).
         const output = try self.hasher.HKDF(self.ck.constSlice(), &[_]u8{}, 2);
 
         var temp_k1: [32]u8 = undefined;
