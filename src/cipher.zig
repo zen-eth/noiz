@@ -53,17 +53,13 @@ pub const CipherState = union(enum) {
         switch (self.*) {
             .chacha => {
                 const n_bytes: [8]u8 = @bitCast(self.chacha.n);
-                for (nonce[nonce_length - @sizeOf(@TypeOf(self.chacha.n)) .. nonce_length], 0..) |*dst, i| {
-                    dst.* = n_bytes[i];
-                }
+                @memcpy(nonce[nonce_length - @sizeOf(@TypeOf(self.aesgcm.n)) .. nonce_length], &n_bytes);
 
                 return self.chacha.encryptWithAd(ciphertext, ad, plaintext, nonce);
             },
             .aesgcm => {
-                const n_bytes: [8]u8 = @bitCast(self.aesgcm.n);
-                for (nonce[nonce_length - @sizeOf(@TypeOf(self.aesgcm.n)) .. nonce_length], 0..) |*dst, i| {
-                    dst.* = n_bytes[n_bytes.len - i - 1];
-                }
+                const n_bytes: [8]u8 = @bitCast(std.mem.nativeToBig(u64, self.aesgcm.n));
+                @memcpy(nonce[nonce_length - @sizeOf(@TypeOf(self.aesgcm.n)) .. nonce_length], &n_bytes);
 
                 return self.aesgcm.encryptWithAd(ciphertext, ad, plaintext, nonce);
             },
@@ -76,17 +72,13 @@ pub const CipherState = union(enum) {
         switch (self.*) {
             .chacha => {
                 const n_bytes: [8]u8 = @bitCast(self.chacha.n);
-                for (nonce[nonce_length - @sizeOf(@TypeOf(self.chacha.n)) .. nonce_length], 0..) |*dst, i| {
-                    dst.* = n_bytes[i];
-                }
+                @memcpy(nonce[nonce_length - @sizeOf(@TypeOf(self.aesgcm.n)) .. nonce_length], &n_bytes);
 
                 return self.chacha.decryptWithAd(plaintext, ad, ciphertext, nonce);
             },
             .aesgcm => {
-                const n_bytes: [8]u8 = @bitCast(self.aesgcm.n);
-                for (nonce[nonce_length - @sizeOf(@TypeOf(self.aesgcm.n)) .. nonce_length], 0..) |*dst, i| {
-                    dst.* = n_bytes[n_bytes.len - i - 1];
-                }
+                const n_bytes: [8]u8 = @bitCast(std.mem.nativeToBig(u64, self.aesgcm.n));
+                @memcpy(nonce[nonce_length - @sizeOf(@TypeOf(self.aesgcm.n)) .. nonce_length], &n_bytes);
 
                 return self.aesgcm.decryptWithAd(plaintext, ad, ciphertext, nonce);
             },
