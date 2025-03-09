@@ -20,6 +20,7 @@ const CipherError = error{
     OutOfMemory,
     Overflow,
     AuthenticationFailed,
+    Unsupported,
 };
 
 /// Choice of cipher in a noise protocol. These must be stylized like in the [protocol specification]
@@ -38,13 +39,13 @@ pub const CipherState = union(enum) {
 
     const nonce_length: usize = 12;
 
-    pub fn init(cipher_st: []const u8, key: [32]u8) CipherState {
+    pub fn init(cipher_st: []const u8, key: [32]u8) !CipherState {
         const len = std.mem.sliceTo(cipher_st, 0).len;
         const cipher_choice = std.meta.stringToEnum(CipherChoice, cipher_st[0..len]);
-        return switch (cipher_choice.?) {
+        if (cipher_choice) |c| return switch (c) {
             .ChaChaPoly => CipherState{ .chacha = CipherState_(ChaCha20Poly1305).init(key) },
             .AESGCM => CipherState{ .aesgcm = CipherState_(Aes256Gcm).init(key) },
-        };
+        } else return CipherError.Unsupported;
     }
 
     pub fn encryptWithAd(self: *CipherState, ciphertext: []u8, ad: []const u8, plaintext: []const u8) ![]const u8 {
@@ -247,8 +248,8 @@ fn testCipher(comptime C: []const u8) !void {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{69} ** 32;
-    var sender = CipherState.init(C, key);
-    var receiver = CipherState.init(C, key);
+    var sender = try CipherState.init(C, key);
+    var receiver = try CipherState.init(C, key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
@@ -270,7 +271,7 @@ test "cipherstate consistency" {
 
 test "failed encryption returns plaintext" {
     const key = [_]u8{0} ** 32;
-    var sender = CipherState.init("ChaChaPoly", key);
+    var sender = try CipherState.init("ChaChaPoly", key);
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
 
@@ -282,7 +283,7 @@ test "failed encryption returns plaintext" {
 
 test "encryption fails on max nonce" {
     const key = [_]u8{1} ** 32;
-    var sender = CipherState.init("ChaChaPoly", key);
+    var sender = try CipherState.init("ChaChaPoly", key);
     sender.chacha.n = std.math.maxInt(u64);
 
     const retval = sender.encryptWithAd("", "", "");
@@ -293,7 +294,7 @@ test "rekey" {
     const allocator = std.testing.allocator;
 
     const key = [_]u8{1} ** 32;
-    var sender = CipherState.init("ChaChaPoly", key);
+    var sender = try CipherState.init("ChaChaPoly", key);
 
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";

@@ -165,7 +165,7 @@ pub const SymmetricState = struct {
         const cipher_choice_str = split_it.next().?; // <CIPHER>
         @memcpy(cipher_choice[0..cipher_choice_str.len], cipher_choice_str);
 
-        const cipher_state = CipherState.init(&cipher_choice, [_]u8{0} ** 32);
+        const cipher_state = try CipherState.init(&cipher_choice, [_]u8{0} ** 32);
         try ck.appendSlice(h.constSlice());
 
         return .{
@@ -190,7 +190,7 @@ pub const SymmetricState = struct {
         self.ck = output[0];
         var temp_k: [32]u8 = undefined;
         @memcpy(&temp_k, output[1].constSlice()[0..32]);
-        self.cipher_state = CipherState.init(&self.cipher_choice, temp_k);
+        self.cipher_state = try CipherState.init(&self.cipher_choice, temp_k);
     }
 
     /// Mix hash with a variable-length `data` input.
@@ -229,7 +229,7 @@ pub const SymmetricState = struct {
         try self.mixHashBounded(output[1].constSlice());
         var temp_k: [32]u8 = undefined;
         @memcpy(&temp_k, output[2].?.constSlice()[0..32]);
-        self.cipher_state = CipherState.init(&self.cipher_choice, temp_k);
+        self.cipher_state = try CipherState.init(&self.cipher_choice, temp_k);
     }
 
     pub fn encryptAndHash(self: *Self, ciphertext: []u8, plaintext: []const u8) ![]const u8 {
@@ -256,8 +256,8 @@ pub const SymmetricState = struct {
         @memcpy(&temp_k1, output[0].constSlice()[0..32]);
         @memcpy(&temp_k2, output[1].constSlice()[0..32]);
 
-        const c1 = CipherState.init(&self.cipher_choice, temp_k1);
-        const c2 = CipherState.init(&self.cipher_choice, temp_k2);
+        const c1 = try CipherState.init(&self.cipher_choice, temp_k1);
+        const c2 = try CipherState.init(&self.cipher_choice, temp_k2);
 
         return .{ c1, c2 };
     }
