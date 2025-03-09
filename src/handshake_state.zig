@@ -37,48 +37,6 @@ const PSK_SIZE = 32;
 ///See: http://www.noiseprotocol.org/noise.html#message-format
 pub const MAX_MESSAGE_LEN = 65535;
 
-fn deriveProtocolName(
-    comptime H: type,
-    comptime C: type,
-    allocator: Allocator,
-    handshake_pattern_name: HandshakePatternName,
-) ![]const u8 {
-    const cipher = comptime switch (C) {
-        Aes256Gcm => "AESGCM",
-        ChaCha20Poly1305 => "ChaChaPoly",
-        else => @compileError(std.fmt.comptimePrint("Unsupported cipher: {any}", .{C})),
-    };
-
-    const hash = comptime switch (H) {
-        Sha256 => "SHA256",
-        Blake2s256 => "BLAKE2s",
-        Sha512 => "SHA512",
-        Blake2b512 => "BLAKE2b",
-        else => @compileError(std.fmt.comptimePrint("Unsupported hash: {any}", .{H})),
-    };
-
-    const suffix = DH_Functions[0] ++ "_" ++ cipher ++ "_" ++ hash;
-    const protocol_name = try std.fmt.allocPrint(allocator, "Noise_{s}_{s}", .{ @tagName(handshake_pattern_name), suffix });
-    return protocol_name;
-}
-
-test "deriveProtocolName" {
-    const allocator = std.testing.allocator;
-    // Noise_XX_25519_AESGCM_SHA256
-    {
-        const protocol_name = try deriveProtocolName(Sha256, Aes256Gcm, allocator, .XX);
-        defer allocator.free(protocol_name);
-        try std.testing.expectEqualStrings("Noise_XX_25519_AESGCM_SHA256", protocol_name);
-    }
-
-    // Noise_N_25519_ChaChaPoly_BLAKE2s
-    {
-        const protocol_name = try deriveProtocolName(Blake2s256, ChaCha20Poly1305, allocator, .N);
-        defer allocator.free(protocol_name);
-        try std.testing.expectEqualStrings("Noise_N_25519_ChaChaPoly_BLAKE2s", protocol_name);
-    }
-}
-
 /// A party in a Noise handshake can either be the initiator or the responder.
 pub const Role = enum {
     Initiator,
