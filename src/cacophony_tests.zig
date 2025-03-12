@@ -37,11 +37,13 @@ const Hash = @import("hash.zig").Hash;
 
 const options = @import("options");
 
-const Message = struct {
-    payload: []const u8,
-    ciphertext: []const u8,
+const Vectors = struct {
+    vectors: []const Vector,
 };
 
+/// Represents a cacophony test vector.
+///
+/// The members of a `Vector` struct correspond to a vector object found within cacophony.txt.
 const Vector = struct {
     protocol_name: []const u8,
     init_prologue: []const u8,
@@ -58,8 +60,9 @@ const Vector = struct {
     messages: []const Message,
 };
 
-const Vectors = struct {
-    vectors: []const Vector,
+const Message = struct {
+    payload: []const u8,
+    ciphertext: []const u8,
 };
 
 pub fn keypairFromSecretKey(secret_key: []const u8) !DH.KeyPair {
@@ -74,9 +77,6 @@ pub fn keypairFromSecretKey(secret_key: []const u8) !DH.KeyPair {
 }
 
 test "cacophony" {
-    //var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    //defer arena.deinit();
-    //const allocator = arena.allocator();
     const allocator = std.testing.allocator;
 
     const cacophony_txt = try std.fs.cwd().openFile("./testdata/cacophony.txt", .{});
@@ -93,7 +93,6 @@ test "cacophony" {
     var failed_vector_count: usize = 0;
 
     std.debug.print("Found {} total vectors.\n", .{total_vector_count});
-    var i: usize = 0;
 
     vector_test: for (data.value.vectors, 0..) |vector, vector_num| {
         const protocol = protocolFromName(vector.protocol_name);
@@ -209,37 +208,46 @@ test "cacophony" {
         var c2resp: CipherState = undefined;
 
         var msg_idx: usize = 0;
-        handshake_blk: for (vector.messages, 0..) |m, k| {
+
+        // Test handshake phase
+        handshake_phase: for (vector.messages, 0..) |m, k| {
             var sender = if (k % 2 == 0) &initiator else &responder;
             var receiver = if (k % 2 == 0) &responder else &initiator;
 
-            // Test handshake phase
             var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
             const sender_cipherstates = sender.writeMessage(payload, &send_buf) catch |e| {
                 failed_vector_count += 1;
-                std.debug.print("Vector \"{s}\" ({}) failed at writeMessage for message {}\n", .{ vector.protocol_name, vector_num + 1, k });
-                std.debug.print("Err = {any}\n", .{e});
-                // break :handshake_blk;
+                std.debug.print("Vector \"{s}\" ({}) failed at writeMessage for message {}\nErr = {any}", .{ vector.protocol_name, vector_num + 1, k, e });
                 continue :vector_test;
             };
 
             var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             var expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
 
-            try std.testing.expectEqualSlices(u8, expected, send_buf.items);
-
-            expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
-            const receiver_cipherstates = receiver.readMessage(send_buf.items, &recv_buf) catch {
+            std.testing.expectEqualSlices(u8, expected, send_buf.items) catch {
                 failed_vector_count += 1;
-                std.debug.print("Vector \"{s}\" ({}) failed at readMessage for message {}\n", .{ vector.protocol_name, vector_num + 1, k });
+                std.debug.print("Vector \"{s}\" ({}) failed at writeMessage for message {}\n", .{ vector.protocol_name, vector_num + 1, k });
                 continue :vector_test;
             };
-            try std.testing.expectEqualSlices(u8, expected, recv_buf.items);
+
+            expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
+            const receiver_cipherstates = receiver.readMessage(send_buf.items, &recv_buf) catch |e| {
+                failed_vector_count += 1;
+                std.debug.print("Vector \"{s}\" ({}) failed at readMessage for message {}\nErr = {any}", .{ vector.protocol_name, vector_num + 1, k, e });
+                continue :vector_test;
+            };
+
+            std.testing.expectEqualSlices(u8, expected, recv_buf.items) catch {
+                failed_vector_count += 1;
+                std.debug.print("Vector \"{s}\" ({}) failed at writeMessage for message {}\n", .{ vector.protocol_name, vector_num + 1, k });
+                continue :vector_test;
+            };
 
             msg_idx += 1;
+            send_buf.clearRetainingCapacity();
+            recv_buf.clearRetainingCapacity();
             if (sender_cipherstates != null and receiver_cipherstates != null) {
-                // Only use the cipher states from one side (sender)
                 if (k % 2 == 0) {
                     // current round sender is initiator
                     c1init = sender_cipherstates.?[0];
@@ -253,10 +261,8 @@ test "cacophony" {
                     c2resp = sender_cipherstates.?[0];
                     c1resp = sender_cipherstates.?[1];
                 }
-                break :handshake_blk;
+                break :handshake_phase;
             }
-            send_buf.clearAndFree();
-            recv_buf.clearAndFree();
         }
 
         try std.testing.expectEqualSlices(u8, initiator.getHandshakeHash(), responder.getHandshakeHash());
@@ -267,6 +273,7 @@ test "cacophony" {
         try send_buf.resize(MAX_MESSAGE_LEN);
         try recv_buf.resize(MAX_MESSAGE_LEN);
 
+        // Transport phase
         for (msg_idx..vector.messages.len) |k| {
             const m = vector.messages[k];
             var sender: *CipherState = undefined;
@@ -282,19 +289,33 @@ test "cacophony" {
             var payload_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             const payload = try std.fmt.hexToBytes(&payload_buf, m.payload);
 
-            _ = try sender.encryptWithAd(send_buf.items, &[_]u8{}, payload);
+            _ = sender.encryptWithAd(send_buf.items, &[_]u8{}, payload) catch |e| {
+                failed_vector_count += 1;
+                std.debug.print("Vector \"{s}\" ({}) failed at encryptWithAd for message {}\nErr = {any}", .{ vector.protocol_name, vector_num + 1, k, e });
+                continue :vector_test;
+            };
 
             var expected_buf: [MAX_MESSAGE_LEN]u8 = undefined;
             var expected = try std.fmt.hexToBytes(&expected_buf, m.ciphertext);
-            try std.testing.expectEqualSlices(u8, expected, send_buf.items[0..expected.len]);
+            std.testing.expectEqualSlices(u8, expected, send_buf.items[0..expected.len]) catch {
+                failed_vector_count += 1;
+                std.debug.print("Vector \"{s}\" ({}) failed after encryptWithAd\n", .{ vector.protocol_name, vector_num + 1 });
+                continue :vector_test;
+            };
 
             expected = try std.fmt.hexToBytes(&expected_buf, m.payload);
             try recv_buf.resize(send_buf.items.len);
-            _ = try receiver.decryptWithAd(recv_buf.items, &[_]u8{}, send_buf.items[0..(expected.len + 16)]);
-            try std.testing.expectEqualSlices(u8, expected, recv_buf.items[0..expected.len]);
+            _ = receiver.decryptWithAd(recv_buf.items, &[_]u8{}, send_buf.items[0..(expected.len + 16)]) catch |e| {
+                failed_vector_count += 1;
+                std.debug.print("Vector \"{s}\" ({}) failed at decryptWithAd for message {}\nErr = {any}", .{ vector.protocol_name, vector_num + 1, k, e });
+                continue :vector_test;
+            };
+            std.testing.expectEqualSlices(u8, expected, recv_buf.items[0..expected.len]) catch {
+                failed_vector_count += 1;
+                std.debug.print("Vector \"{s}\" ({}) failed after decryptWithAd\n", .{ vector.protocol_name, vector_num + 1 });
+                continue :vector_test;
+            };
         }
-
-        i += 1;
     }
     std.debug.print("***** {} out of {} vectors passed. *****\n", .{ total_vector_count - failed_vector_count, total_vector_count });
 }
