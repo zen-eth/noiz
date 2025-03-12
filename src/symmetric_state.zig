@@ -7,21 +7,19 @@ const BoundedArray = std.BoundedArray;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
-const CipherState = @import("./cipher.zig").CipherState;
-const CipherChoice = @import("./cipher.zig").CipherChoice;
+const cipher = @import("cipher.zig");
+const hash = @import("hash.zig");
 
-const Hash = @import("hash.zig").Hash;
-const MAXHASHLEN = @import("hash.zig").MAXHASHLEN;
-const HashSha256 = @import("hash.zig").HashSha256;
-const HashSha512 = @import("hash.zig").HashSha512;
-const HashBlake2b = @import("hash.zig").HashBlake2b;
-const HashBlake2s = @import("hash.zig").HashBlake2s;
-const HashChoice = @import("hash.zig").HashChoice;
-
+const CipherState = cipher.CipherState;
+const CipherChoice = cipher.CipherChoice;
+const Hash = hash.Hash;
+const MAXHASHLEN = hash.MAXHASHLEN;
+const HashSha256 = hash.HashSha256;
+const HashSha512 = hash.HashSha512;
+const HashBlake2b = hash.HashBlake2b;
+const HashBlake2s = hash.HashBlake2s;
+const HashChoice = hash.HashChoice;
 const MAX_MESSAGE_LEN = @import("handshake_state.zig").MAX_MESSAGE_LEN;
-
-const Sha256 = std.crypto.hash.sha2.Sha256;
-const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
 const Protocol = struct {
     const Self = @This();
@@ -38,15 +36,15 @@ pub fn protocolFromName(protocol_name: []const u8) Protocol {
     _ = split_it.next().?;
     const pattern = split_it.next().?;
     const dh = split_it.next().?;
-    const cipher = std.meta.stringToEnum(CipherChoice, split_it.next().?).?;
-    const hash = std.meta.stringToEnum(HashChoice, split_it.next().?).?;
+    const cipher_ = std.meta.stringToEnum(CipherChoice, split_it.next().?).?;
+    const hash_ = std.meta.stringToEnum(HashChoice, split_it.next().?).?;
     std.debug.assert(split_it.next() == null);
 
     return .{
         .pattern = pattern,
         .dh = dh,
-        .cipher = cipher,
-        .hash = hash,
+        .cipher = cipher_,
+        .hash = hash_,
     };
 }
 

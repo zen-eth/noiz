@@ -1,33 +1,21 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
-const builtin = @import("builtin");
-
+const handshake_pattern = @import("handshake_pattern.zig");
+const cipher = @import("cipher.zig");
+const Hash = @import("hash.zig").Hash;
 const SymmetricState = @import("symmetric_state.zig").SymmetricState;
-const HandshakePatternName = @import("handshake_pattern.zig").HandshakePatternName;
-const HandshakePattern = @import("handshake_pattern.zig").HandshakePattern;
-const patternFromName = @import("handshake_pattern.zig").patternFromName;
-const MessagePatternArray = @import("handshake_pattern.zig").MessagePatternArray;
-
 const DH = @import("dh.zig").DH;
 
-const Sha256 = std.crypto.hash.sha2.Sha256;
-const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-const Aes256Gcm = std.crypto.aead.aes_gcm.Aes256Gcm;
-
-const Sha512 = std.crypto.hash.sha2.Sha512;
-const Blake2s256 = std.crypto.hash.blake2.Blake2s256;
-const Blake2b512 = std.crypto.hash.blake2.Blake2b512;
-
-const NOISE_ = "Noise_";
-const DH_Functions = [_][]const u8{"25519"};
-const Cipher_Functions = [_][]const u8{ "Aes256Gcm", "ChaCha20Poly1305" };
-const Hash_Functions = [_][]const u8{ "Sha256", "Sha512", "Blake2s256", "Blake2b512" };
-
-const CipherState = @import("./cipher.zig").CipherState;
-const Cipher = @import("./cipher.zig").Cipher;
-const Hash = @import("hash.zig").Hash;
+const CipherState = cipher.CipherState;
+const Cipher = cipher.Cipher;
+const HandshakePatternName = handshake_pattern.HandshakePatternName;
+const HandshakePattern = handshake_pattern.HandshakePattern;
+const patternFromName = handshake_pattern.patternFromName;
+const MessagePatternArray = handshake_pattern.MessagePatternArray;
 
 //Noise provides a pre-shared symmetric key or PSK mode to support protocols where both parties have a 32-byte shared secret key.
 const PSK_SIZE = 32;
@@ -98,7 +86,7 @@ pub const HandshakeState = struct {
     pub fn init(
         protocol_name: []const u8,
         allocator: Allocator,
-        handshake_pattern: HandshakePattern,
+        pattern: HandshakePattern,
         role: Role,
         prologue: []const u8,
         psks: ?[]const u8,
@@ -109,7 +97,7 @@ pub const HandshakeState = struct {
 
         if (role == .Initiator) {
             // The initiator's public key(s) are always hashed first.
-            if (handshake_pattern.pre_message_pattern_initiator) |i| {
+            if (pattern.pre_message_pattern_initiator) |i| {
                 const key_s = keys.s.?.inner.public_key[0..];
                 const key_e = keys.e.?.inner.public_key[0..];
 
@@ -121,7 +109,7 @@ pub const HandshakeState = struct {
                     else => @panic(""),
                 }
             }
-            if (handshake_pattern.pre_message_pattern_responder) |r| {
+            if (pattern.pre_message_pattern_responder) |r| {
                 const key_rs = keys.rs.?[0..];
                 switch (r) {
                     .s => try sym.mixHashBounded(key_rs),
@@ -135,7 +123,7 @@ pub const HandshakeState = struct {
             }
         } else {
             // The initiator's public key(s) are always hashed first.
-            if (handshake_pattern.pre_message_pattern_initiator) |i| {
+            if (pattern.pre_message_pattern_initiator) |i| {
                 const key_rs = if (keys.rs) |rs| rs[0..] else null;
                 const key_re = if (keys.re) |re| re[0..] else null;
                 switch (i) {
@@ -144,7 +132,7 @@ pub const HandshakeState = struct {
                     else => @panic(""),
                 }
             }
-            if (handshake_pattern.pre_message_pattern_responder) |r| {
+            if (pattern.pre_message_pattern_responder) |r| {
                 switch (r) {
                     .s => if (keys.s) |s| try sym.mixHashBounded(s.inner.public_key[0..]),
                     .e => if (keys.e) |e| try sym.mixHashBounded(e.inner.public_key[0..]),
@@ -155,7 +143,7 @@ pub const HandshakeState = struct {
 
         return .{
             .allocator = allocator,
-            .message_patterns = handshake_pattern.message_patterns,
+            .message_patterns = pattern.message_patterns,
             .symmetric_state = sym,
             .s = keys.s,
             .e = keys.e,
