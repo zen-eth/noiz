@@ -30,7 +30,9 @@ const Protocol = struct {
     hash: HashChoice,
 };
 
-// Constructs a `Protocol` from a `protocol_name` byte sequence.
+/// Constructs a `Protocol` from a `protocol_name` byte sequence.
+///
+/// This `Protocol` will be used to instantiate a `SymmetricState`.
 pub fn protocolFromName(protocol_name: []const u8) Protocol {
     var split_it = std.mem.splitScalar(u8, protocol_name, '_');
     _ = split_it.next().?;
