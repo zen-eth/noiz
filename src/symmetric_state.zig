@@ -2,23 +2,22 @@
 //!
 //! See: http://www.noiseprotocol.org/noise.html#the-symmetricstate-object
 const std = @import("std");
-
 const BoundedArray = std.BoundedArray;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
 const cipher = @import("cipher.zig");
-const hash = @import("hash.zig");
-
 const CipherState = cipher.CipherState;
 const CipherChoice = cipher.CipherChoice;
-const Hash = hash.Hash;
+
+const hash = @import("hash.zig");
 const MAXHASHLEN = hash.MAXHASHLEN;
-const HashSha256 = hash.HashSha256;
-const HashSha512 = hash.HashSha512;
-const HashBlake2b = hash.HashBlake2b;
-const HashBlake2s = hash.HashBlake2s;
+const HashSha256 = hash.Sha256;
+const HashSha512 = hash.Sha512;
+const HashBlake2b = hash.Blake2b;
+const HashBlake2s = hash.Blake2s;
 const HashChoice = hash.HashChoice;
+
 const MAX_MESSAGE_LEN = @import("handshake_state.zig").MAX_MESSAGE_LEN;
 
 const Protocol = struct {
