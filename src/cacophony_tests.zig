@@ -2,40 +2,19 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
-const print = std.debug.print;
-
-const SymmetricState = @import("symmetric_state.zig").SymmetricState;
-
 const DH = @import("dh.zig").DH;
 
+const handshake_state = @import("handshake_state.zig");
+const HandshakeState = handshake_state.HandshakeState;
+const MAX_MESSAGE_LEN = handshake_state.MAX_MESSAGE_LEN;
+
 const protocolFromName = @import("symmetric_state.zig").protocolFromName;
-const HandshakeState = @import("handshake_state.zig").HandshakeState;
-const patternFromName = @import("handshake_pattern.zig").patternFromName;
-const MAX_MESSAGE_LEN = @import("handshake_state.zig").MAX_MESSAGE_LEN;
-const HandshakePatternName = @import("handshake_pattern.zig").HandshakePatternName;
-const HandshakePattern = @import("handshake_pattern.zig").HandshakePattern;
-const MessagePattern = @import("handshake_pattern.zig").MessagePattern;
 
-const CipherStateChaCha = @import("cipher.zig").CipherStateChaCha;
-
-const HashSha256 = @import("hash.zig").HashSha256;
-const HashSha512 = @import("hash.zig").HashSha512;
-const HashBlake2b = @import("hash.zig").HashBlake2b;
-const HashBlake2s = @import("hash.zig").HashBlake2s;
-
-const Sha256 = std.crypto.hash.sha2.Sha256;
-const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
-const Aes256Gcm = std.crypto.aead.aes_gcm.Aes256Gcm;
-
-const Sha512 = std.crypto.hash.sha2.Sha512;
-const Blake2s256 = std.crypto.hash.blake2.Blake2s256;
-const Blake2b512 = std.crypto.hash.blake2.Blake2b512;
+const handshake_pattern = @import("handshake_pattern.zig");
+const patternFromName = handshake_pattern.patternFromName;
+const HandshakePatternName = handshake_pattern.HandshakePatternName;
 
 const CipherState = @import("./cipher.zig").CipherState;
-const CipherChoice = @import("./cipher.zig").CipherChoice;
-const Hash = @import("hash.zig").Hash;
-
-const options = @import("options");
 
 const Vectors = struct {
     vectors: []const Vector,
@@ -99,7 +78,7 @@ test "cacophony" {
 
         var split = std.mem.splitSequence(u8, protocol.pattern, "psk");
         const is_one_way = if (std.meta.stringToEnum(HandshakePatternName, split.next().?)) |p|
-            @import("handshake_pattern.zig").isOneWay(p)
+            handshake_pattern.isOneWay(p)
         else
             false;
 
@@ -108,7 +87,7 @@ test "cacophony" {
         // See: https://github.com/ziglang/zig/issues/22101#issuecomment-2507982794
         if (std.mem.eql(u8, protocol.dh, "448")) continue;
 
-        if (options.enable_logging) std.debug.print("\n***** Testing: {s} *****\n", .{vector.protocol_name});
+        if (@import("options").enable_logging) std.debug.print("\n***** Testing: {s} *****\n", .{vector.protocol_name});
 
         const init_s = if (vector.init_static) |s| try keypairFromSecretKey(s) else null;
         const init_e = try keypairFromSecretKey(vector.init_ephemeral);
