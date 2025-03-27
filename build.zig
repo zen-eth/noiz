@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    _ = b.addModule("noiz", .{
+    const noiz = b.addModule("noiz", .{
         .root_source_file = b.path("src/root.zig"),
     });
 
@@ -36,4 +36,13 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
+
+    // One-way example
+    const oneway_server = b.addExecutable(.{
+        .name = "oneway-server",
+        .root_source_file = b.path("examples/oneway/server.zig"),
+        .target = b.graph.host,
+    });
+    oneway_server.root_module.addImport("noiz", noiz);
+    b.installArtifact(oneway_server);
 }
