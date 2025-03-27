@@ -7,7 +7,6 @@ const DH = @import("../../src/dh.zig").DH;
 
 const HandshakeState = noiz.handshake_state.HandshakeState;
 const patternFromName = noiz.patternFromName;
-const Role = noiz.Role;
 
 const PSK: []const u8 = "A complicated enough system eventually becomes ensouled.";
 
