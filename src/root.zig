@@ -2,6 +2,7 @@ const handshake_pattern = @import("handshake_pattern.zig");
 
 pub const handshake_state = @import("handshake_state.zig");
 pub const patternFromName = handshake_pattern.patternFromName;
+pub const DH = @import("dh.zig").DH;
 
 test {
     _ = @import("cipher.zig");
