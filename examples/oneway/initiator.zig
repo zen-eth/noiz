@@ -4,8 +4,8 @@ const ArrayList = std.ArrayList;
 
 const noiz = @import("noiz");
 
-const DH = noiz.DH;
 const HandshakeState = noiz.handshake_state.HandshakeState;
+const DH = noiz.DH;
 const patternFromName = noiz.patternFromName;
 
 const PSK: []const u8 = "A complicated enough system eventually becomes ensouled.";
@@ -22,44 +22,38 @@ pub fn main() !void {
     var responder_public_key: [32]u8 = undefined;
     _ = try std.fmt.hexToBytes(&responder_public_key, "435ce8a8415ccd44de5e207581ac7207b416683028bcaecc9eb38d944e6f900c");
 
+    const initiator_keypair = try DH.KeyPair.generate(null);
+
     const pattern = try patternFromName(
         allocator,
         "Xpsk1",
     );
-    const responder_keypair = DH.KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
-        .public_key = responder_public_key,
-        .secret_key = responder_secret_key,
-    } };
-
-    var responder = try HandshakeState.init(
+    var initiator = try HandshakeState.init(
         "Noise_Xpsk1_25519_ChaChaPoly_BLAKE2s",
         allocator,
         pattern,
-        .Responder,
+        .Initiator,
         prologue,
         PSK,
         .{
-            .s = responder_keypair,
+            .s = initiator_keypair,
+            .rs = responder_public_key,
         },
     );
 
-    const loopback = try std.net.Ip4Address.parse("127.0.0.1", 9999);
-    const localhost = std.net.Address{ .in = loopback };
-    var server = try localhost.listen(.{ .reuse_address = true });
-    defer server.deinit();
-    const addr = server.listen_address;
-    std.debug.print("Listening on {}, access this port to end the program\n", .{addr.getPort()});
-    var client = try server.accept();
-    defer client.stream.close();
+    const server = try std.net.Address.parseIp("127.0.0.1", 9999);
+    const stream = try std.net.tcpConnectToAddress(server);
+    defer stream.close();
 
-    var buf: [65535]u8 = undefined;
-    const buf_len = try client.stream.readAll(&buf);
+    std.debug.print("Connecting to {}\n", .{server});
 
-    var payload_buf = try ArrayList(u8).initCapacity(allocator, 65535);
-    defer payload_buf.deinit();
+    var buf = try ArrayList(u8).initCapacity(allocator, 65535);
+    defer buf.deinit();
 
-    const read = buf[0..buf_len];
-    _ = try responder.readMessage(read, &payload_buf);
-
-    std.debug.print("Client said {s}\n", .{payload_buf.items});
+    const data = "hello zig";
+    _ = try initiator.writeMessage(data, &buf);
+    // Sending data to peer
+    var writer = stream.writer();
+    const size = try writer.write(buf.items);
+    std.debug.print("Sending '{s}' to peer, total written: {d} bytes\n", .{ data, size });
 }
