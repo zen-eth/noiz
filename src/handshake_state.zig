@@ -77,7 +77,7 @@ pub const HandshakeState = struct {
         rs: ?[DH.KeyPair.public_length]u8 = null,
 
         /// re: The remote party's ephemeral public key
-        re: ?[DH.KeyPair.public_length]u8 = [_]u8{0} ** 32,
+        re: ?[DH.KeyPair.public_length]u8 = null,
     };
 
     /// Initializes a handshake state machine.
@@ -227,6 +227,10 @@ pub const HandshakeState = struct {
                     .s => {
                         const len: usize = if (self.symmetric_state.cipher_state.hasKey()) DH.KeyPair.DHLEN + 16 else DH.KeyPair.DHLEN;
 
+                        if (!builtin.is_test) {
+                            std.debug.assert(self.rs == null);
+                            self.rs = undefined;
+                        }
                         _ = try self.symmetric_state.decryptAndHash(self.rs.?[0..], message[msg_idx .. msg_idx + len]);
                         msg_idx += len;
                     },

@@ -44,5 +44,13 @@ pub fn build(b: *std.Build) void {
         .target = b.graph.host,
     });
     oneway_server.root_module.addImport("noiz", noiz);
+    const oneway_initiator = b.addExecutable(.{
+        .name = "oneway-initiator",
+        .root_source_file = b.path("examples/oneway/initiator.zig"),
+        .target = b.graph.host,
+    });
+    oneway_initiator.root_module.addImport("noiz", noiz);
+
     b.installArtifact(oneway_server);
+    b.installArtifact(oneway_initiator);
 }
