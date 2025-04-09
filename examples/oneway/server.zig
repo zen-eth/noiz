@@ -1,3 +1,8 @@
+//! A barebones TCP Server that establishes a `Noise_Xpsk1_25519_ChaChaPoly_BLAKE2s` session, then listens and waits for a client to send a message before reading and decrypting it.
+//!
+//! To run, first `zig build`, and run the executable `zig-out/bin/oneway-server`.
+//!
+//! Adapted from: https://github.com/mcginty/snow/blob/main/examples/oneway.rs
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;

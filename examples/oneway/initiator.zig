@@ -1,9 +1,14 @@
+//! A barebones TCP Client that establishes a `Noise_Xpsk1_25519_ChaChaPoly_BLAKE2s` session, and sends
+//! an important message across the wire.
+//!
+//! To run, first `zig build`, and run the executable `zig-out/bin/oneway-initiator`.
+//!
+//! Adapted from: https://github.com/mcginty/snow/blob/main/examples/oneway.rs
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
 const noiz = @import("noiz");
-
 const HandshakeState = noiz.handshake_state.HandshakeState;
 const DH = noiz.DH;
 const patternFromName = noiz.patternFromName;
