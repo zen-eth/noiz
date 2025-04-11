@@ -27,19 +27,14 @@ pub fn main() !void {
     var responder_public_key: [32]u8 = undefined;
     _ = try std.fmt.hexToBytes(&responder_public_key, "435ce8a8415ccd44de5e207581ac7207b416683028bcaecc9eb38d944e6f900c");
 
-    const pattern = try patternFromName(
-        allocator,
-        "Xpsk1",
-    );
     const responder_keypair = DH.KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
         .public_key = responder_public_key,
         .secret_key = responder_secret_key,
     } };
 
-    var responder = try HandshakeState.init(
+    var responder = try HandshakeState.initName(
         "Noise_Xpsk1_25519_ChaChaPoly_BLAKE2s",
         allocator,
-        pattern,
         .Responder,
         prologue,
         PSK,

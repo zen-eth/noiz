@@ -29,14 +29,9 @@ pub fn main() !void {
 
     const initiator_keypair = try DH.KeyPair.generate(null);
 
-    const pattern = try patternFromName(
-        allocator,
-        "Xpsk1",
-    );
-    var initiator = try HandshakeState.init(
+    var initiator = try HandshakeState.initName(
         "Noise_Xpsk1_25519_ChaChaPoly_BLAKE2s",
         allocator,
-        pattern,
         .Initiator,
         prologue,
         PSK,

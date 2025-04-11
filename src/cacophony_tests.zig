@@ -116,12 +116,9 @@ test "cacophony" {
             }
         };
 
-        const pattern = try patternFromName(allocator, protocol.pattern);
-
-        var initiator = try HandshakeState.init(
+        var initiator = try HandshakeState.initName(
             vector.protocol_name,
             allocator,
-            pattern,
             .Initiator,
             init_prologue,
             init_psks,
@@ -159,12 +156,9 @@ test "cacophony" {
             }
         };
 
-        const resp_pattern = try patternFromName(allocator, protocol.pattern);
-
-        var responder = try HandshakeState.init(
+        var responder = try HandshakeState.initName(
             vector.protocol_name,
             allocator,
-            resp_pattern,
             .Responder,
             resp_prologue,
             resp_psks,

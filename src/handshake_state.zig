@@ -83,10 +83,9 @@ pub const HandshakeState = struct {
     /// Initializes a handshake state machine.
     ///
     /// Deinitialize with `deinit`.
-    pub fn init(
+    pub fn initName(
         protocol_name: []const u8,
         allocator: Allocator,
-        pattern: HandshakePattern,
         role: Role,
         prologue: []const u8,
         psks: ?[]const u8,
@@ -94,6 +93,11 @@ pub const HandshakeState = struct {
     ) !Self {
         var sym = try SymmetricState.init(allocator, protocol_name);
         try sym.mixHash(prologue);
+
+        var split_it = std.mem.splitAny(u8, protocol_name, "_");
+        _ = split_it.next().?;
+        const pattern_name = split_it.next().?;
+        const pattern = try patternFromName(allocator, pattern_name);
 
         if (role == .Initiator) {
             // The initiator's public key(s) are always hashed first.
