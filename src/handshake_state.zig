@@ -214,10 +214,8 @@ pub const HandshakeState = struct {
             for (p) |token| {
                 switch (token) {
                     .e => {
-                        if (!builtin.is_test) {
-                            std.debug.assert(self.re == null);
-                            self.re = undefined;
-                        }
+                        if (!builtin.is_test) std.debug.assert(self.re == null);
+                        self.re = undefined;
                         @memcpy(self.re.?[0..], message[msg_idx .. msg_idx + DH.KeyPair.DHLEN]);
                         try self.symmetric_state.mixHashBounded(&self.re.?);
 
