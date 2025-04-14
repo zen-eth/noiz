@@ -6,7 +6,7 @@ const DH = @import("dh.zig").DH;
 
 const handshake_state = @import("handshake_state.zig");
 const HandshakeState = handshake_state.HandshakeState;
-const MAX_MESSAGE_LEN = handshake_state.MAX_MESSAGE_LEN;
+const MAX_MESSAGE_LEN = @import("root.zig").MAX_MESSAGE_LEN;
 
 const protocolFromName = @import("symmetric_state.zig").protocolFromName;
 

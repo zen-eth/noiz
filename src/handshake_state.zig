@@ -9,6 +9,7 @@ const cipher = @import("cipher.zig");
 const Hash = @import("hash.zig").Hash;
 const SymmetricState = @import("symmetric_state.zig").SymmetricState;
 const DH = @import("dh.zig").DH;
+const MAX_MESSAGE_LEN = @import("root.zig").MAX_MESSAGE_LEN;
 
 const CipherState = cipher.CipherState;
 const Cipher = cipher.Cipher;
@@ -19,11 +20,6 @@ const MessagePatternArray = handshake_pattern.MessagePatternArray;
 
 //Noise provides a pre-shared symmetric key or PSK mode to support protocols where both parties have a 32-byte shared secret key.
 const PSK_SIZE = 32;
-
-///The max message length in bytes.
-///
-///See: http://www.noiseprotocol.org/noise.html#message-format
-pub const MAX_MESSAGE_LEN = 65535;
 
 /// A party in a Noise handshake can either be the initiator or the responder.
 pub const Role = enum {

@@ -18,7 +18,7 @@ const HashBlake2b = hash.Blake2b;
 const HashBlake2s = hash.Blake2s;
 const HashChoice = hash.HashChoice;
 
-const MAX_MESSAGE_LEN = @import("handshake_state.zig").MAX_MESSAGE_LEN;
+const MAX_MESSAGE_LEN = @import("root.zig").MAX_MESSAGE_LEN;
 
 const Protocol = struct {
     const Self = @This();
