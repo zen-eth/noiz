@@ -13,19 +13,18 @@ const DH = noiz.DH;
 const HandshakeState = noiz.handshake_state.HandshakeState;
 const patternFromName = noiz.patternFromName;
 
-const PSK: []const u8 = "A complicated enough system eventually becomes ensouled.";
+const shared = @import("shared.zig");
 
 /// Starts a server which listens for a oneway message.
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-    const prologue = "";
 
     var responder_secret_key: [32]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&responder_secret_key, "52fbe3721d1adbe312d270ca2db5ce5bd39ddc206075f3a8f06d422619c8eb5d");
+    _ = try std.fmt.hexToBytes(&responder_secret_key, shared.RESPONDER_SK_HEX);
     var responder_public_key: [32]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&responder_public_key, "435ce8a8415ccd44de5e207581ac7207b416683028bcaecc9eb38d944e6f900c");
+    _ = try std.fmt.hexToBytes(&responder_public_key, shared.RESPONDER_PK_HEX);
 
     const responder_keypair = DH.KeyPair{ .inner = std.crypto.dh.X25519.KeyPair{
         .public_key = responder_public_key,
@@ -33,17 +32,17 @@ pub fn main() !void {
     } };
 
     var responder = try HandshakeState.initName(
-        "Noise_Xpsk1_25519_ChaChaPoly_BLAKE2s",
+        shared.PROTOCOL_NAME,
         allocator,
         .Responder,
-        prologue,
-        PSK,
+        shared.PROLOGUE,
+        shared.PSK,
         .{
             .s = responder_keypair,
         },
     );
 
-    const loopback = try std.net.Ip4Address.parse("127.0.0.1", 9999);
+    const loopback = try std.net.Ip4Address.parse(shared.IP, shared.PORT);
     const localhost = std.net.Address{ .in = loopback };
     var server = try localhost.listen(.{ .reuse_address = true });
     defer server.deinit();
@@ -52,10 +51,10 @@ pub fn main() !void {
     var client = try server.accept();
     defer client.stream.close();
 
-    var buf: [65535]u8 = undefined;
+    var buf: [noiz.MAX_MESSAGE_LEN]u8 = undefined;
     const buf_len = try client.stream.readAll(&buf);
 
-    var payload_buf = try ArrayList(u8).initCapacity(allocator, 65535);
+    var payload_buf = try ArrayList(u8).initCapacity(allocator, noiz.MAX_MESSAGE_LEN);
     defer payload_buf.deinit();
 
     const read = buf[0..buf_len];
