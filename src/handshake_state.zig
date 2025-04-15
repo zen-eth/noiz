@@ -78,6 +78,9 @@ pub const HandshakeState = struct {
 
     /// Initializes a handshake state machine.
     ///
+    /// The implementation deviates from the spec by directly taking in `protocol_name` as an input rather than
+    /// deriving it by combining the names for the handshake pattern and crypto functions.
+    ///
     /// Deinitialize with `deinit`.
     pub fn initName(
         protocol_name: []const u8,
