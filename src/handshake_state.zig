@@ -98,45 +98,33 @@ pub const HandshakeState = struct {
         if (role == .Initiator) {
             // The initiator's public key(s) are always hashed first.
             if (pattern.pre_message_pattern_initiator) |i| {
-                const key_s = keys.s.?.inner.public_key[0..];
-                const key_e = keys.e.?.inner.public_key[0..];
-
                 switch (i) {
-                    .s => try sym.mixHashBounded(key_s),
-                    .e => {
-                        try sym.mixHashBounded(key_e);
-                    },
-                    else => @panic(""),
+                    .s => if (keys.s) |s| try sym.mixHashBounded(&s.inner.public_key),
+                    .e => if (keys.e) |e| try sym.mixHashBounded(&e.inner.public_key),
+                    else => return error.InvalidPreMessagePattern,
                 }
             }
             if (pattern.pre_message_pattern_responder) |r| {
-                const key_rs = keys.rs.?[0..];
                 switch (r) {
-                    .s => try sym.mixHashBounded(key_rs),
-                    .e => {
-                        if (keys.re) |re| {
-                            try sym.mixHashBounded(&re);
-                        }
-                    },
-                    else => @panic(""),
+                    .s => if (keys.rs) |rs| try sym.mixHashBounded(&rs),
+                    .e => if (keys.re) |re| try sym.mixHashBounded(&re),
+                    else => return error.InvalidPreMessagePattern,
                 }
             }
         } else {
             // The initiator's public key(s) are always hashed first.
             if (pattern.pre_message_pattern_initiator) |i| {
-                const key_rs = if (keys.rs) |rs| rs[0..] else null;
-                const key_re = if (keys.re) |re| re[0..] else null;
                 switch (i) {
-                    .s => if (key_rs) |rs| try sym.mixHashBounded(rs),
-                    .e => if (key_re) |re| try sym.mixHashBounded(re),
-                    else => @panic(""),
+                    .s => if (keys.rs) |rs| try sym.mixHashBounded(&rs),
+                    .e => if (keys.re) |re| try sym.mixHashBounded(&re),
+                    else => return error.InvalidPreMessagePattern,
                 }
             }
             if (pattern.pre_message_pattern_responder) |r| {
                 switch (r) {
-                    .s => if (keys.s) |s| try sym.mixHashBounded(s.inner.public_key[0..]),
-                    .e => if (keys.e) |e| try sym.mixHashBounded(e.inner.public_key[0..]),
-                    else => @panic(""),
+                    .s => if (keys.s) |s| try sym.mixHashBounded(&s.inner.public_key),
+                    .e => if (keys.e) |e| try sym.mixHashBounded(&e.inner.public_key),
+                    else => return error.InvalidPreMessagePattern,
                 }
             }
         }
