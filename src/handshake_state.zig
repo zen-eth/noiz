@@ -95,8 +95,10 @@ pub const HandshakeState = struct {
         const pattern_name = split_it.next().?;
         const pattern = try patternFromName(allocator, pattern_name);
 
+        // Rules for hashing pre-messages:
+        // 1) Initiator's public keys are always hashed first.
+        // 2) If multiple public keys are listed, they are hashed in the order that they are listed.
         if (role == .Initiator) {
-            // The initiator's public key(s) are always hashed first.
             if (pattern.pre_message_pattern_initiator) |i| {
                 switch (i) {
                     .s => if (keys.s) |s| try sym.mixHashBounded(&s.inner.public_key),
@@ -112,7 +114,6 @@ pub const HandshakeState = struct {
                 }
             }
         } else {
-            // The initiator's public key(s) are always hashed first.
             if (pattern.pre_message_pattern_initiator) |i| {
                 switch (i) {
                     .s => if (keys.rs) |rs| try sym.mixHashBounded(&rs),
