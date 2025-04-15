@@ -87,8 +87,8 @@ pub const HandshakeState = struct {
         psks: ?[]const u8,
         keys: Keys,
     ) !Self {
-        var sym = try SymmetricState.init(allocator, protocol_name);
-        try sym.mixHash(prologue);
+        var ss = try SymmetricState.init(allocator, protocol_name);
+        try ss.mixHash(prologue);
 
         var split_it = std.mem.splitAny(u8, protocol_name, "_");
         _ = split_it.next().?;
@@ -101,30 +101,30 @@ pub const HandshakeState = struct {
         if (role == .Initiator) {
             if (pattern.pre_message_pattern_initiator) |i| {
                 switch (i) {
-                    .s => if (keys.s) |s| try sym.mixHashBounded(&s.inner.public_key),
-                    .e => if (keys.e) |e| try sym.mixHashBounded(&e.inner.public_key),
+                    .s => if (keys.s) |s| try ss.mixHashBounded(&s.inner.public_key),
+                    .e => if (keys.e) |e| try ss.mixHashBounded(&e.inner.public_key),
                     else => return error.InvalidPreMessagePattern,
                 }
             }
             if (pattern.pre_message_pattern_responder) |r| {
                 switch (r) {
-                    .s => if (keys.rs) |rs| try sym.mixHashBounded(&rs),
-                    .e => if (keys.re) |re| try sym.mixHashBounded(&re),
+                    .s => if (keys.rs) |rs| try ss.mixHashBounded(&rs),
+                    .e => if (keys.re) |re| try ss.mixHashBounded(&re),
                     else => return error.InvalidPreMessagePattern,
                 }
             }
         } else {
             if (pattern.pre_message_pattern_initiator) |i| {
                 switch (i) {
-                    .s => if (keys.rs) |rs| try sym.mixHashBounded(&rs),
-                    .e => if (keys.re) |re| try sym.mixHashBounded(&re),
+                    .s => if (keys.rs) |rs| try ss.mixHashBounded(&rs),
+                    .e => if (keys.re) |re| try ss.mixHashBounded(&re),
                     else => return error.InvalidPreMessagePattern,
                 }
             }
             if (pattern.pre_message_pattern_responder) |r| {
                 switch (r) {
-                    .s => if (keys.s) |s| try sym.mixHashBounded(&s.inner.public_key),
-                    .e => if (keys.e) |e| try sym.mixHashBounded(&e.inner.public_key),
+                    .s => if (keys.s) |s| try ss.mixHashBounded(&s.inner.public_key),
+                    .e => if (keys.e) |e| try ss.mixHashBounded(&e.inner.public_key),
                     else => return error.InvalidPreMessagePattern,
                 }
             }
@@ -133,7 +133,7 @@ pub const HandshakeState = struct {
         return .{
             .allocator = allocator,
             .message_patterns = pattern.message_patterns,
-            .symmetric_state = sym,
+            .symmetric_state = ss,
             .s = keys.s,
             .e = keys.e,
             .rs = keys.rs,
