@@ -146,7 +146,11 @@ pub const HandshakeState = struct {
         };
     }
 
-    /// Fetches and deletes the next message pattern from `message_patterns` and processes each token sequentially from the pattern.
+    /// Advances the `MessagePatternArray` by 1 and processes the token, encrypting and hashing the `payload` to write into `message`.
+    /// If there are no more message patterns, returns two new `CipherState` objects by calling `self.symmetric_state.split()`.
+    ///
+    /// Note that the original spec calls for fetching and deleting the next message pattern, but for ease of memory management, we use a static array and advance the index instead to fetch the next pattern.
+    ///
     /// Aborts if any `encryptAndHash()` calls returns an error.
     pub fn writeMessage(self: *Self, payload: []const u8, message: *ArrayList(u8)) !?struct { CipherState, CipherState } {
         const pattern = self.message_patterns.next();
@@ -194,7 +198,10 @@ pub const HandshakeState = struct {
         return null;
     }
 
-    /// Fetches and deletes the next message pattern from `message_patterns` and processes each token sequentially from the pattern.
+    /// Advances the `MessagePatternArray` by 1 and processes the token, encrypting and hashing the `payload` to write into `message`.
+    /// If there are no more message patterns, returns two new `CipherState` objects by calling `self.symmetric_state.split()`.
+    ///
+    /// Note that the original spec calls for fetching and deleting the next message pattern, but for ease of memory management, we use a static array and advance the index instead to fetch the next pattern.
     ///
     /// Aborts if any `decryptAndHash()` calls returns an error.
     pub fn readMessage(self: *Self, message: []const u8, payload_buf: *ArrayList(u8)) !?struct { CipherState, CipherState } {
@@ -250,6 +257,9 @@ pub const HandshakeState = struct {
         return null;
     }
 
+    /// Returns the hash in the `SymmetricState`.
+    ///
+    /// This function should only be called at the end of a handshake, i.e. after the split function has been called. This is used for channel binding, as described in Section 11.2: http://www.noiseprotocol.org/noise.html#channel-binding
     pub fn getHandshakeHash(self: *Self) []const u8 {
         return self.symmetric_state.h.constSlice();
     }
