@@ -4,6 +4,8 @@ pub const handshake_state = @import("handshake_state.zig");
 pub const patternFromName = handshake_pattern.patternFromName;
 pub const DH = @import("dh.zig").DH;
 
+pub const CipherState = @import("cipher.zig").CipherState;
+
 ///The max message length in bytes.
 ///
 ///See: http://www.noiseprotocol.org/noise.html#message-format
